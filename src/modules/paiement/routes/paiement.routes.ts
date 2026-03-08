@@ -23,6 +23,7 @@ const router = Router();
 router.get('/', ...httpKernel.allow('admin', 'medecin', 'secretaire'), paiementController.getAll);
 router.get('/patient/:patientId', ...httpKernel.allow('admin', 'medecin', 'secretaire', 'patient'), ...httpKernel.params(PatientIdParamSchema), paiementController.getByPatientId);
 router.get('/rendez-vous/:rendezVousId', ...httpKernel.allow('admin', 'medecin', 'secretaire', 'patient'), ...httpKernel.params(RendezVousIdParamSchema), paiementController.getByRendezVousId);
+router.post('/webhooks/paydunya', ...httpKernel.public(), paiementController.paydunyaWebhook);
 router.get('/:id/facture/download', ...httpKernel.allow('admin', 'medecin', 'secretaire', 'patient'), ...httpKernel.params(IdParamSchema), paiementController.downloadFacture);
 router.get('/:id', ...httpKernel.allow('admin', 'medecin', 'secretaire', 'patient'), ...httpKernel.params(IdParamSchema), paiementController.getById);
 router.post('/initier', ...httpKernel.allow('patient'), ...httpKernel.body(InitiatePaiementSchema), paiementController.initiate);

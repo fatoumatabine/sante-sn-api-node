@@ -7,6 +7,7 @@ export const paiementRouteContract: ModuleRouteContract = {
     { method: 'GET', path: '/', auth: 'roles', roles: ['admin', 'medecin', 'secretaire'] },
     { method: 'GET', path: '/patient/:patientId', auth: 'roles', roles: ['admin', 'medecin', 'secretaire', 'patient'], validations: { params: 'PatientIdParamSchema' } },
     { method: 'GET', path: '/rendez-vous/:rendezVousId', auth: 'roles', roles: ['admin', 'medecin', 'secretaire', 'patient'], validations: { params: 'RendezVousIdParamSchema' } },
+    { method: 'POST', path: '/webhooks/paydunya', auth: 'public' },
     { method: 'GET', path: '/:id/facture/download', auth: 'roles', roles: ['admin', 'medecin', 'secretaire', 'patient'], validations: { params: 'IdParamSchema' } },
     { method: 'GET', path: '/:id', auth: 'roles', roles: ['admin', 'medecin', 'secretaire', 'patient'], validations: { params: 'IdParamSchema' } },
     { method: 'POST', path: '/initier', auth: 'roles', roles: ['patient'], validations: { body: 'InitiatePaiementSchema' } },

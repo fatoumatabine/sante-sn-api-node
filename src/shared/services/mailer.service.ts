@@ -27,10 +27,10 @@ function isBlank(value: string | undefined): boolean {
 }
 
 function resolveSmtpConfig(): SmtpConfig | null {
-  const host = process.env.SMTP_HOST?.trim();
-  const portRaw = process.env.SMTP_PORT?.trim();
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS;
+  const host = process.env.SMTP_HOST?.trim() || process.env.MAIL_HOST?.trim();
+  const portRaw = process.env.SMTP_PORT?.trim() || process.env.MAIL_PORT?.trim();
+  const user = process.env.SMTP_USER?.trim() || process.env.MAIL_USERNAME?.trim();
+  const pass = process.env.SMTP_PASS || process.env.MAIL_PASSWORD;
 
   if (isBlank(host) || isBlank(portRaw) || isBlank(user) || isBlank(pass)) {
     return null;
@@ -42,8 +42,19 @@ function resolveSmtpConfig(): SmtpConfig | null {
   }
 
   const secureFromEnv = process.env.SMTP_SECURE?.trim();
-  const secure = secureFromEnv ? secureFromEnv === 'true' : port === 465;
-  const from = (process.env.MAIL_FROM?.trim() || user)!;
+  const mailEncryption = process.env.MAIL_ENCRYPTION?.trim().toLowerCase();
+  const secure = secureFromEnv
+    ? secureFromEnv === 'true'
+    : mailEncryption
+      ? mailEncryption === 'ssl'
+      : port === 465;
+
+  const fromAddress = process.env.MAIL_FROM_ADDRESS?.trim();
+  const fromName = process.env.MAIL_FROM_NAME?.trim();
+  const fromByParts = fromAddress
+    ? (fromName ? `${fromName} <${fromAddress}>` : fromAddress)
+    : '';
+  const from = (process.env.MAIL_FROM?.trim() || fromByParts || user)!;
 
   return {
     host: host!,

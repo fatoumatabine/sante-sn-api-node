@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { corsOptions } from './config/cors';
 import { validateRuntimeEnv } from './config/env';
+import { buildSwaggerSpec } from './config/swagger';
 import { errorMiddleware } from './shared/middleware/error.middleware';
 import { initializeContainer } from './shared/di/container';
 
@@ -40,43 +40,13 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ==================== SWAGGER ====================
-const swaggerOptions = {
-  definition: {
-    openapi: '3.0.0',
-    info: {
-      title: 'API Santé SN',
-      version: '1.0.0',
-      description: 'API REST pour application de gestion médicale - Node.js/Express/Prisma',
-      contact: {
-        name: 'Support',
-        email: 'support@santesn.com',
-      },
-    },
-    servers: [
-      {
-        url: 'http://localhost:3000',
-        description: 'Serveur de développement',
-      },
-    ],
-    components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-        },
-      },
-    },
-    security: [
-      {
-        bearerAuth: [],
-      },
-    ],
-  },
-  apis: ['./src/**/*.ts'],
-};
-
-const swaggerSpec = swaggerJsdoc(swaggerOptions);
+const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || `http://localhost:${PORT}`;
+const swaggerSpec = buildSwaggerSpec({
+  title: 'API Santé SN',
+  version: '1.0.0',
+  description: 'API REST pour application de gestion médicale - Node.js/Express/Prisma',
+  serverUrl: swaggerServerUrl,
+});
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/api-docs.json', (req, res) => {

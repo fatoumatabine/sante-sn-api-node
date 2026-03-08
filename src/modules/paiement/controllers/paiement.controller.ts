@@ -20,6 +20,7 @@ export class PaiementController {
     this.fail = this.fail.bind(this);
     this.delete = this.delete.bind(this);
     this.downloadFacture = this.downloadFacture.bind(this);
+    this.paydunyaWebhook = this.paydunyaWebhook.bind(this);
   }
 
   async getAll(req: Request, res: Response, next: NextFunction) {
@@ -180,6 +181,15 @@ export class PaiementController {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
       return res.status(200).send(result.buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async paydunyaWebhook(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await this.paiementService.handlePaydunyaWebhook(req.body);
+      return res.status(200).json(ApiResponse.success(result, 'Webhook PayDunya traité'));
     } catch (error) {
       next(error);
     }

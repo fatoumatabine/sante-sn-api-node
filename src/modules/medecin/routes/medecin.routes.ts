@@ -66,6 +66,24 @@ router.get('/specialite/:specialite', ...httpKernel.params(SpecialiteParamSchema
 
 /**
  * @swagger
+ * /api/v1/medecins/profile/me:
+ *   get:
+ *     summary: Profil du médecin connecté
+ *     description: Retourne le profil du médecin actuellement connecté
+ *     tags:
+ *       - Médecins
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Profil du médecin
+ */
+router.get('/profile/me', ...httpKernel.allow('medecin'), (req, res, next) => 
+  medecinController.getProfile(req, res, next)
+);
+
+/**
+ * @swagger
  * /api/v1/medecins/{id}:
  *   get:
  *     summary: Détails d'un médecin
@@ -83,24 +101,6 @@ router.get('/specialite/:specialite', ...httpKernel.params(SpecialiteParamSchema
  *         description: Détails du médecin
  */
 router.get('/:id', ...httpKernel.params(IdParamSchema), (req, res, next) => medecinController.show(req, res, next));
-
-/**
- * @swagger
- * /api/v1/medecins/profile/me:
- *   get:
- *     summary: Profil du médecin connecté
- *     description: Retourne le profil du médecin actuellement connecté
- *     tags:
- *       - Médecins
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Profil du médecin
- */
-router.get('/profile/me', ...httpKernel.allow('medecin'), (req, res, next) => 
-  medecinController.getProfile(req, res, next)
-);
 
 /**
  * @swagger

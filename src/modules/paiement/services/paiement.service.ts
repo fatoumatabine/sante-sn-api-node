@@ -2,9 +2,19 @@ import prisma from '../../../config/db';
 import { AppError } from '../../../shared/utils/AppError';
 import { randomUUID } from 'crypto';
 import { buildSimplePdf } from '../../../shared/utils/simplePdf';
+import { PaydunyaClient } from './paydunya.client';
 
 export class PaiementService {
-  private readonly allowedPaymentMethods = ['especes', 'carte_bancaire', 'mobile_money', 'virement', 'wave', 'orange_money'];
+  private readonly allowedPaymentMethods = [
+    'especes',
+    'carte_bancaire',
+    'mobile_money',
+    'virement',
+    'wave',
+    'orange_money',
+  ];
+  private readonly onlineMethods = ['carte_bancaire', 'mobile_money', 'wave', 'orange_money'];
+  private readonly paydunyaClient = new PaydunyaClient();
 
   private getPrismaErrorCode(error: unknown): string | undefined {
     if (!error || typeof error !== 'object') return undefined;
@@ -100,6 +110,152 @@ export class PaiementService {
     return rdv;
   }
 
+  private isOnlineMethod(methode: string): boolean {
+    return this.onlineMethods.includes(methode);
+  }
+
+  private getPaydunyaChannels(methode: string): string[] | undefined {
+    if (methode === 'wave') return ['wave-senegal'];
+    if (methode === 'orange_money') return ['orange-money-senegal'];
+    if (methode === 'carte_bancaire') return ['card'];
+    return undefined;
+  }
+
+  private getPublicApiBaseUrl(): string | undefined {
+    const explicitBase = process.env.API_BASE_URL?.trim();
+    if (explicitBase) return explicitBase.replace(/\/+$/, '');
+
+    const frontend = process.env.FRONTEND_URL?.trim();
+    if (frontend && frontend.startsWith('http')) {
+      return frontend.replace(/\/+$/, '').replace(/:\d+$/, ':5000');
+    }
+
+    return undefined;
+  }
+
+  private getPaydunyaUrls(paiementId: number): { callbackUrl?: string; returnUrl?: string; cancelUrl?: string } {
+    const apiBase = this.getPublicApiBaseUrl();
+    const frontendBase = process.env.FRONTEND_URL?.trim()?.replace(/\/+$/, '');
+
+    return {
+      callbackUrl:
+        process.env.PAYDUNYA_CALLBACK_URL?.trim() ||
+        (apiBase ? `${apiBase}/api/v1/paiements/webhooks/paydunya` : undefined),
+      returnUrl:
+        process.env.PAYDUNYA_RETURN_URL?.trim() ||
+        (frontendBase ? `${frontendBase}/patient/paiements?payment=success&paiementId=${paiementId}` : undefined),
+      cancelUrl:
+        process.env.PAYDUNYA_CANCEL_URL?.trim() ||
+        (frontendBase ? `${frontendBase}/patient/paiements?payment=cancelled&paiementId=${paiementId}` : undefined),
+    };
+  }
+
+  private extractPaydunyaToken(transactionId?: string | null): string | null {
+    const raw = transactionId?.trim();
+    if (!raw) return null;
+    if (raw.startsWith('PDY-')) return raw.slice(4);
+    return raw;
+  }
+
+  private async markPaiementAsPaidFromProvider(paiementId: number, providerToken?: string) {
+    const paiement = await prisma.paiement.findFirst({
+      where: { id: paiementId, isArchived: false },
+      include: { rendezVous: true },
+    });
+
+    if (!paiement) {
+      throw new AppError('Paiement non trouvé', 404);
+    }
+
+    if (paiement.statut === 'paye') {
+      return this.findById(paiement.id);
+    }
+
+    if (paiement.rendezVous.statut === 'annule') {
+      throw new AppError("Impossible de confirmer le paiement d'un rendez-vous annulé", 400);
+    }
+
+    if (!['confirme', 'paye'].includes(paiement.rendezVous.statut)) {
+      throw new AppError('Le rendez-vous doit être confirmé avant validation du paiement', 400);
+    }
+
+    const transactionId = providerToken
+      ? `PDY-${providerToken}`
+      : paiement.transactionId || `TXN-${randomUUID()}`;
+
+    const [, updatedPaiement] = await prisma.$transaction([
+      prisma.rendezVous.update({
+        where: { id: paiement.rendezVousId },
+        data: { statut: 'paye' },
+      }),
+      prisma.paiement.update({
+        where: { id: paiement.id },
+        data: {
+          statut: 'paye',
+          transactionId,
+          date_paiement: new Date(),
+        },
+        include: {
+          patient: true,
+          rendezVous: true,
+        },
+      }),
+    ]);
+
+    return updatedPaiement;
+  }
+
+  private async markPaiementAsFailedFromProvider(paiementId: number) {
+    const paiement = await prisma.paiement.findFirst({
+      where: { id: paiementId, isArchived: false },
+      include: {
+        patient: true,
+        rendezVous: true,
+      },
+    });
+
+    if (!paiement) {
+      throw new AppError('Paiement non trouvé', 404);
+    }
+
+    if (paiement.statut === 'paye') {
+      return paiement;
+    }
+
+    if (paiement.statut === 'echoue') {
+      return paiement;
+    }
+
+    return prisma.paiement.update({
+      where: { id: paiement.id },
+      data: { statut: 'echoue' },
+      include: {
+        patient: true,
+        rendezVous: true,
+      },
+    });
+  }
+
+  private normalizePaydunyaWebhookData(payload: unknown): Record<string, unknown> {
+    if (!payload || typeof payload !== 'object') return {};
+
+    const source = payload as Record<string, unknown>;
+    const data = source.data;
+
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+      } catch {
+        // ignore invalid json and fallback to source
+      }
+    } else if (data && typeof data === 'object') {
+      return data as Record<string, unknown>;
+    }
+
+    return source;
+  }
+
   async initiateForPatient(userId: number, data: { rendezVousId: number; methode: string }) {
     const patient = await this.findPatientByUserIdOrThrow(userId);
     this.assertValidMethod(data.methode);
@@ -136,6 +292,57 @@ export class PaiementService {
           },
         });
 
+    if (this.isOnlineMethod(data.methode)) {
+      if (!this.paydunyaClient.isConfigured()) {
+        throw new AppError(
+          'Paiement en ligne indisponible. Configuration PayDunya manquante sur le serveur.',
+          503
+        );
+      }
+
+      const urls = this.getPaydunyaUrls(paiement.id);
+      const createResponse = await this.paydunyaClient.createCheckoutInvoice({
+        amount: montant,
+        description: `Consultation médicale #${rdv.numero}`,
+        reference: `PAIEMENT-${paiement.id}`,
+        channels: this.getPaydunyaChannels(data.methode),
+        callbackUrl: urls.callbackUrl,
+        returnUrl: urls.returnUrl,
+        cancelUrl: urls.cancelUrl,
+        customData: {
+          paiement_id: paiement.id,
+          rendez_vous_id: rdv.id,
+          patient_id: patient.id,
+          methode: data.methode,
+        },
+      });
+
+      if (createResponse.response_code !== '00' || !createResponse.token || !createResponse.response_text) {
+        throw new AppError(
+          createResponse.description || createResponse.response_text || 'Impossible d’initier la transaction PayDunya',
+          400
+        );
+      }
+
+      const updatedPaiement = await prisma.paiement.update({
+        where: { id: paiement.id },
+        data: {
+          transactionId: `PDY-${createResponse.token}`,
+          statut: 'en_attente',
+        },
+      });
+
+      return {
+        ...updatedPaiement,
+        paymentSession: {
+          provider: 'paydunya',
+          token: createResponse.token,
+          checkoutUrl: createResponse.response_text,
+          expiresInSeconds: 900,
+        },
+      };
+    }
+
     return {
       ...paiement,
       paymentSession: {
@@ -147,10 +354,6 @@ export class PaiementService {
   }
 
   async payForPatient(userId: number, paiementId: number, confirmationCode?: string) {
-    if (!confirmationCode || !/^\d{6}$/.test(confirmationCode)) {
-      throw new AppError('Code de confirmation invalide (6 chiffres requis)', 400);
-    }
-
     const patient = await this.findPatientByUserIdOrThrow(userId);
     const paiement = await prisma.paiement.findFirst({
       where: { id: paiementId, isArchived: false },
@@ -164,13 +367,49 @@ export class PaiementService {
       throw new AppError('Accès interdit à ce paiement', 403);
     }
     if (paiement.statut === 'paye') {
-      throw new AppError('Ce paiement est déjà confirmé', 400);
+      return this.findById(paiement.id);
     }
     if (paiement.rendezVous.statut === 'annule') {
       throw new AppError('Impossible de payer un rendez-vous annulé', 400);
     }
     if (paiement.rendezVous.statut !== 'confirme') {
       throw new AppError('Le rendez-vous doit être confirmé avant le paiement', 400);
+    }
+
+    if (this.isOnlineMethod(paiement.methode)) {
+      const token = this.extractPaydunyaToken(paiement.transactionId);
+      if (!token) {
+        throw new AppError('Token de transaction en ligne introuvable. Réinitiez le paiement.', 400);
+      }
+
+      const statusResponse = await this.paydunyaClient.confirmCheckoutInvoice(token);
+      if (statusResponse.response_code !== '00') {
+        throw new AppError(
+          statusResponse.response_text || 'Impossible de vérifier le statut PayDunya',
+          400
+        );
+      }
+
+      const providerStatus = (statusResponse.response_message || statusResponse.status || '').toLowerCase();
+      if (providerStatus === 'completed') {
+        return this.markPaiementAsPaidFromProvider(paiement.id, token);
+      }
+      if (providerStatus === 'cancelled' || providerStatus === 'failed') {
+        return this.markPaiementAsFailedFromProvider(paiement.id);
+      }
+
+      return {
+        ...paiement,
+        paymentSession: {
+          provider: 'paydunya',
+          token,
+          status: providerStatus || 'pending',
+        },
+      };
+    }
+
+    if (!confirmationCode || !/^\d{6}$/.test(confirmationCode)) {
+      throw new AppError('Code de confirmation invalide (6 chiffres requis)', 400);
     }
 
     const transactionId = paiement.transactionId || `TXN-${randomUUID()}`;
@@ -195,6 +434,65 @@ export class PaiementService {
     ]);
 
     return updatedPaiement;
+  }
+
+  async handlePaydunyaWebhook(payload: unknown) {
+    const data = this.normalizePaydunyaWebhookData(payload);
+
+    const token = typeof data.token === 'string' ? data.token.trim() : '';
+    const status = typeof data.status === 'string' ? data.status.trim().toLowerCase() : '';
+    const hash =
+      typeof data.hash === 'string'
+        ? data.hash.trim()
+        : typeof (payload as Record<string, unknown>)?.hash === 'string'
+          ? ((payload as Record<string, unknown>).hash as string).trim()
+          : '';
+
+    this.paydunyaClient.assertWebhookSignature(hash);
+
+    if (!token) {
+      throw new AppError('Webhook PayDunya invalide: token absent', 400);
+    }
+
+    const paiement = await prisma.paiement.findFirst({
+      where: {
+        isArchived: false,
+        OR: [{ transactionId: `PDY-${token}` }, { transactionId: token }],
+      },
+    });
+
+    if (!paiement) {
+      return {
+        processed: false,
+        reason: 'paiement_not_found',
+        token,
+        status: status || 'pending',
+      };
+    }
+
+    if (status === 'completed') {
+      const updated = await this.markPaiementAsPaidFromProvider(paiement.id, token);
+      return {
+        processed: true,
+        status: 'paye',
+        paiementId: updated.id,
+      };
+    }
+
+    if (status === 'cancelled' || status === 'failed') {
+      const updated = await this.markPaiementAsFailedFromProvider(paiement.id);
+      return {
+        processed: true,
+        status: updated.statut,
+        paiementId: updated.id,
+      };
+    }
+
+    return {
+      processed: true,
+      status: status || 'pending',
+      paiementId: paiement.id,
+    };
   }
 
   async findAll() {
