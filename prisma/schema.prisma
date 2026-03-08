@@ -1,0 +1,425 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ENUMS ====================
+
+enum Role {
+  patient
+  medecin
+  secretaire
+  admin
+}
+
+enum StatutRendezVous {
+  en_attente
+  confirme
+  termine
+  annule
+  paye
+}
+
+enum TypeRendezVous {
+  en_ligne
+  presentiel
+  prestation
+}
+
+enum StatutConsultation {
+  en_attente
+  en_cours
+  termine
+}
+
+enum StatutPaiement {
+  en_attente
+  paye
+  echoue
+  rembourse
+}
+
+enum StatutPrestation {
+  en_attente
+  en_cours
+  termine
+}
+
+// ==================== MODELS ====================
+
+model User {
+  id                     Int       @id @default(autoincrement())
+  email                  String    @unique
+  password               String
+  name                   String
+  role                   Role      @default(patient)
+  emailVerifiedAt        DateTime?
+  rememberToken          String?
+  isArchived             Boolean   @default(false)
+  archivedAt             DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  patient       Patient?
+  medecin       Medecin?
+  secretaire    Secretaire?
+  notifications Notification[]
+  userSetting   UserSetting?
+  chatThreadsA  ChatThread[]  @relation("ChatThreadParticipantA")
+  chatThreadsB  ChatThread[]  @relation("ChatThreadParticipantB")
+  chatMessagesSent ChatMessage[] @relation("ChatMessageSender")
+}
+
+model Patient {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique
+  nom                String
+  prenom             String
+  telephone          String    @unique
+  date_naissance     DateTime?
+  adresse            String?
+  groupe_sanguin     String?
+  diabete            Boolean   @default(false)
+  hypertension       Boolean   @default(false)
+  hepatite           Boolean   @default(false)
+  autres_pathologies String?
+  isArchived         Boolean   @default(false)
+  archivedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rendezVous    RendezVous[]
+  consultations Consultation[]
+  paiements     Paiement[]
+  prestations   Prestation[]
+  ordonnances   Ordonnance[]
+  triageEvaluations PatientTriageEvaluation[]
+}
+
+model Medecin {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique
+  nom                String
+  prenom             String
+  specialite         String
+  telephone          String
+  adresse            String?
+  tarif_consultation Float     @default(0)
+  isArchived         Boolean   @default(false)
+  archivedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secretaires   Secretaire[]
+  rendezVous    RendezVous[]
+  consultations Consultation[]
+  ordonnances   Ordonnance[]
+  creneaux      CreneauDisponible[]
+}
+
+model Secretaire {
+  id         Int       @id @default(autoincrement())
+  userId     Int       @unique
+  medecinId  Int?
+  nom        String
+  prenom     String
+  telephone  String
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medecin Medecin? @relation(fields: [medecinId], references: [id])
+}
+
+model RendezVous {
+  id              Int              @id @default(autoincrement())
+  numero          String           @unique @default(cuid())
+  date            DateTime
+  heure           String
+  patientId       Int
+  medecinId       Int
+  type            TypeRendezVous
+  statut          StatutRendezVous @default(en_attente)
+  urgent_ia       Boolean          @default(false)
+  motif           String?
+  raison_refus    String?
+  prestation_type String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Relations
+  patient        Patient                   @relation(fields: [patientId], references: [id])
+  medecin        Medecin                   @relation(fields: [medecinId], references: [id])
+  consultation   Consultation?
+  paiement       Paiement?
+  transitionLogs RendezVousTransitionLog[]
+
+  // Index
+  @@index([patientId])
+  @@index([medecinId])
+  @@index([date])
+  @@index([statut])
+  @@index([urgent_ia, statut])
+}
+
+model RendezVousTransitionLog {
+  id           Int               @id @default(autoincrement())
+  rendezVousId Int
+  fromStatut   StatutRendezVous?
+  toStatut     StatutRendezVous
+  actorRole    Role?
+  actorUserId  Int?
+  reason       String?
+  metadata     Json?
+  createdAt    DateTime          @default(now())
+
+  // Relations
+  rendezVous RendezVous @relation(fields: [rendezVousId], references: [id], onDelete: Cascade)
+
+  @@index([rendezVousId, createdAt])
+  @@index([actorUserId])
+}
+
+model Consultation {
+  id           Int                @id @default(autoincrement())
+  rendezVousId Int?               @unique
+  patientId    Int
+  medecinId    Int
+  date         DateTime
+  heure        String
+  type         String
+  statut       StatutConsultation @default(en_attente)
+  constantes   Json?
+  diagnostic   String?
+  observations String?
+  isArchived   Boolean            @default(false)
+  archivedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  // Relations
+  patient     Patient                @relation(fields: [patientId], references: [id])
+  medecin     Medecin                @relation(fields: [medecinId], references: [id])
+  rendezVous  RendezVous?            @relation(fields: [rendezVousId], references: [id])
+  ordonnance  Ordonnance?
+  prestations Prestation[]
+  presences   ConsultationPresence[]
+
+  // Index
+  @@index([patientId])
+  @@index([medecinId])
+  @@index([date])
+}
+
+model ConsultationPresence {
+  id             Int      @id @default(autoincrement())
+  consultationId Int
+  role           Role
+  userId         Int
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, role])
+  @@index([consultationId, lastSeenAt])
+  @@index([userId])
+}
+
+model Ordonnance {
+  id             Int       @id @default(autoincrement())
+  consultationId Int       @unique
+  patientId      Int
+  medecinId      Int
+  contenu        String
+  date_creation  DateTime  @default(now())
+  isArchived     Boolean   @default(false)
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  consultation Consultation             @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  patient      Patient                  @relation(fields: [patientId], references: [id])
+  medecin      Medecin                  @relation(fields: [medecinId], references: [id])
+  medicaments  MedicamentOnOrdonnance[]
+}
+
+model Medicament {
+  id        Int      @id @default(autoincrement())
+  nom       String
+  forme     String
+  dosage    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  ordonnances MedicamentOnOrdonnance[]
+}
+
+model MedicamentOnOrdonnance {
+  ordonnanceId Int
+  medicamentId Int
+  posologie    String
+  duree        String
+  quantite     Int    @default(1)
+
+  // Relations
+  ordonnance Ordonnance @relation(fields: [ordonnanceId], references: [id], onDelete: Cascade)
+  medicament Medicament @relation(fields: [medicamentId], references: [id])
+
+  @@id([ordonnanceId, medicamentId])
+}
+
+model Paiement {
+  id            Int            @id @default(autoincrement())
+  patientId     Int
+  rendezVousId  Int            @unique
+  montant       Float
+  methode       String
+  statut        StatutPaiement @default(en_attente)
+  transactionId String?
+  date_paiement DateTime?
+  isArchived    Boolean        @default(false)
+  archivedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  patient    Patient    @relation(fields: [patientId], references: [id])
+  rendezVous RendezVous @relation(fields: [rendezVousId], references: [id])
+}
+
+model Prestation {
+  id               Int              @id @default(autoincrement())
+  consultationId   Int?
+  patientId        Int
+  type             String
+  statut           StatutPrestation @default(en_attente)
+  resultat         String?
+  date_realisation DateTime?
+  isArchived       Boolean          @default(false)
+  archivedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  // Relations
+  consultation Consultation? @relation(fields: [consultationId], references: [id])
+  patient      Patient       @relation(fields: [patientId], references: [id])
+
+  // Index
+  @@index([patientId])
+  @@index([consultationId])
+}
+
+model CreneauDisponible {
+  id        Int     @id @default(autoincrement())
+  medecinId Int
+  jour      Int
+  heure     String
+  actif     Boolean @default(true)
+
+  // Relations
+  medecin Medecin @relation(fields: [medecinId], references: [id])
+
+  @@unique([medecinId, jour, heure])
+}
+
+model Notification {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  titre      String
+  message    String
+  lu         Boolean   @default(false)
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ChatThread {
+  id                 Int      @id @default(autoincrement())
+  participantAUserId Int
+  participantBUserId Int
+  lastMessageAt      DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  participantA User @relation("ChatThreadParticipantA", fields: [participantAUserId], references: [id], onDelete: Cascade)
+  participantB User @relation("ChatThreadParticipantB", fields: [participantBUserId], references: [id], onDelete: Cascade)
+  messages     ChatMessage[]
+
+  @@unique([participantAUserId, participantBUserId])
+  @@index([participantAUserId])
+  @@index([participantBUserId])
+  @@index([lastMessageAt])
+}
+
+model ChatMessage {
+  id           Int      @id @default(autoincrement())
+  threadId     Int
+  senderUserId Int
+  content      String
+  readAt       DateTime?
+  createdAt    DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender User       @relation("ChatMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([senderUserId])
+  @@index([readAt])
+}
+
+model PatientTriageEvaluation {
+  id                  Int      @id @default(autoincrement())
+  patientId           Int
+  responses           Json
+  niveau              String
+  urgent              Boolean  @default(false)
+  specialiteConseillee String?
+  recommandations     Json
+  createdAt           DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, createdAt])
+}
+
+model AppSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserSetting {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

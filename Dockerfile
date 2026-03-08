@@ -1,0 +1,31 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY prisma ./prisma
+COPY src ./src
+COPY scripts ./scripts
+
+RUN npm run prisma:generate
+RUN npm run build
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package*.json ./
+# Keep Prisma CLI available at runtime for `prisma migrate deploy`.
+RUN npm ci --include=dev
+
+COPY prisma ./prisma
+RUN npm run prisma:generate
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/scripts ./scripts
+
+EXPOSE 5000
+
+CMD ["node", "dist/server.js"]
