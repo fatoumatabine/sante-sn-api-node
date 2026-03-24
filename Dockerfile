@@ -1,8 +1,8 @@
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
 # Install build dependencies for Prisma
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci
@@ -15,12 +15,12 @@ COPY scripts ./scripts
 RUN npm run prisma:generate
 RUN npm run build
 
-FROM node:20-alpine AS runtime
+FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
 # Install runtime dependencies for Prisma
-RUN apk add --no-cache libssl3
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 # Keep Prisma CLI available at runtime for `prisma migrate deploy`.
@@ -34,4 +34,4 @@ COPY --from=builder /app/scripts ./scripts
 
 EXPOSE 5000
 
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
