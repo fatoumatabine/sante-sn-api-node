@@ -14,6 +14,13 @@ export interface IAuthRepository {
     nom: string;
     prenom: string;
     telephone: string;
+    date_naissance?: Date;
+    adresse?: string;
+    groupe_sanguin?: string;
+    diabete?: boolean;
+    hypertension?: boolean;
+    hepatite?: boolean;
+    autres_pathologies?: string;
   }): Promise<Patient>;
   createMedecin(userId: number, data: {
     nom: string;

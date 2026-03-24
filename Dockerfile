@@ -1,6 +1,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# Install build dependencies for Prisma
+RUN apk add --no-cache python3 make g++
+
 COPY package*.json ./
 RUN npm ci
 
@@ -15,6 +18,9 @@ RUN npm run build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Install runtime dependencies for Prisma
+RUN apk add --no-cache libssl3
 
 COPY package*.json ./
 # Keep Prisma CLI available at runtime for `prisma migrate deploy`.

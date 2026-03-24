@@ -5,7 +5,7 @@ export const RegisterSchema = z.object({
   email: GmailEmailSchema,
   password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
   name: z.string().min(2, 'Le nom doit contenir au moins 2 caractères'),
-  role: z.enum(['patient', 'medecin', 'secretaire']).default('patient'),
+  role: z.literal('patient').default('patient'),
 });
 
 export const LoginSchema = z.object({
@@ -41,21 +41,27 @@ export const ChangePasswordSchema = z.object({
 });
 
 // Patient registration with additional fields
+const AntecedentInputSchema = z.object({
+  type: z.enum(['medical', 'chirurgical', 'familial', 'allergie']),
+  description: z.string().trim().min(1, "La description de l'antécédent est requise"),
+  date: z.string().trim().optional(),
+  traitement: z.string().trim().optional(),
+});
+
 export const RegisterPatientSchema = RegisterSchema.extend({
   role: z.literal('patient'),
   prenom: z.string().min(2, 'Le prénom doit contenir au moins 2 caractères'),
   nom: z.string().min(2, 'Le nom doit contenir au moins 2 caractères'),
   telephone: z.string().min(8, 'Le numéro de téléphone est requis'),
-});
-
-// Médecin registration
-export const RegisterMedecinSchema = RegisterSchema.extend({
-  role: z.literal('medecin'),
-  prenom: z.string().min(2, 'Le prénom doit contenir au moins 2 caractères'),
-  nom: z.string().min(2, 'Le nom doit contenir au moins 2 caractères'),
-  telephone: z.string().min(8, 'Le numéro de téléphone est requis'),
-  specialite: z.string().min(2, 'La spécialite est requise'),
-  tarif_consultation: z.number().optional(),
+  date_naissance: z.union([z.string(), z.date()]).optional(),
+  adresse: z.string().trim().min(1).optional(),
+  groupe_sanguin: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).optional(),
+  diabete: z.boolean().optional(),
+  hypertension: z.boolean().optional(),
+  hepatite: z.boolean().optional(),
+  autres_pathologies: z.string().trim().min(1).optional(),
+  allergies: z.array(z.string().trim().min(1)).optional(),
+  antecedents: z.array(AntecedentInputSchema).optional(),
 });
 
 export type RegisterDto = z.infer<typeof RegisterSchema>;
@@ -64,4 +70,3 @@ export type ForgotPasswordDto = z.infer<typeof ForgotPasswordSchema>;
 export type ResetPasswordDto = z.infer<typeof ResetPasswordSchema>;
 export type RefreshTokenDto = z.infer<typeof RefreshTokenSchema>;
 export type RegisterPatientDto = z.infer<typeof RegisterPatientSchema>;
-export type RegisterMedecinDto = z.infer<typeof RegisterMedecinSchema>;

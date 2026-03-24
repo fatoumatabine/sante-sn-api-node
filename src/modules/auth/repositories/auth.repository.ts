@@ -59,6 +59,13 @@ export class AuthRepository implements IAuthRepository {
     nom: string;
     prenom: string;
     telephone: string;
+    date_naissance?: Date;
+    adresse?: string;
+    groupe_sanguin?: string;
+    diabete?: boolean;
+    hypertension?: boolean;
+    hepatite?: boolean;
+    autres_pathologies?: string;
   }): Promise<Patient> {
     return prisma.patient.create({
       data: {
@@ -66,6 +73,13 @@ export class AuthRepository implements IAuthRepository {
         nom: data.nom,
         prenom: data.prenom,
         telephone: data.telephone,
+        date_naissance: data.date_naissance,
+        adresse: data.adresse,
+        groupe_sanguin: data.groupe_sanguin,
+        diabete: data.diabete,
+        hypertension: data.hypertension,
+        hepatite: data.hepatite,
+        autres_pathologies: data.autres_pathologies,
       },
     });
   }

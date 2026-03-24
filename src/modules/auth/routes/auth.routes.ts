@@ -51,6 +51,48 @@ const router = Router();
  *                 type: string
  *               telephone:
  *                 type: string
+ *                 example: "771234567"
+ *               date_naissance:
+ *                 type: string
+ *                 format: date
+ *                 example: "1995-03-25"
+ *               adresse:
+ *                 type: string
+ *                 example: "Dakar, Sénégal"
+ *               groupe_sanguin:
+ *                 type: string
+ *                 enum: [A+, A-, B+, B-, AB+, AB-, O+, O-]
+ *               diabete:
+ *                 type: boolean
+ *               hypertension:
+ *                 type: boolean
+ *               hepatite:
+ *                 type: boolean
+ *               autres_pathologies:
+ *                 type: string
+ *                 example: "Asthme léger"
+ *               allergies:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["pénicilline", "arachides"]
+ *               antecedents:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - type
+ *                     - description
+ *                   properties:
+ *                     type:
+ *                       type: string
+ *                       enum: [medical, chirurgical, familial, allergie]
+ *                     description:
+ *                       type: string
+ *                     date:
+ *                       type: string
+ *                     traitement:
+ *                       type: string
  *     responses:
  *       201:
  *         description: Inscription réussie

@@ -15,8 +15,24 @@ export interface RegisterInput {
   prenom?: string;
   nom?: string;
   telephone?: string;
+  date_naissance?: string | Date;
+  adresse?: string;
+  groupe_sanguin?: string;
+  diabete?: boolean;
+  hypertension?: boolean;
+  hepatite?: boolean;
+  autres_pathologies?: string;
+  allergies?: string[];
+  antecedents?: RegisterAntecedentInput[];
   specialite?: string;
   tarif_consultation?: number;
+}
+
+export interface RegisterAntecedentInput {
+  type: 'medical' | 'chirurgical' | 'familial' | 'allergie';
+  description: string;
+  date?: string;
+  traitement?: string;
 }
 
 export interface LoginInput {
@@ -38,8 +54,73 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+  debugResetLink?: string;
+  debugStatus?: 'USER_NOT_FOUND' | 'EMAIL_SENT' | 'SMTP_NOT_CONFIGURED' | 'SMTP_SEND_FAILED';
+}
+
 export class RegisterUseCase {
   constructor(private authRepository: IAuthRepository) {}
+
+  private normalizeOptionalString(value?: string): string | undefined {
+    if (!value) return undefined;
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private parseOptionalDate(value?: string | Date): Date | undefined {
+    if (!value) return undefined;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? undefined : value;
+    }
+
+    const normalized = value.trim();
+    if (!normalized) return undefined;
+
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestError('Format date_naissance invalide');
+    }
+    return parsed;
+  }
+
+  private buildAutresPathologies(input: RegisterInput): string | undefined {
+    const lines: string[] = [];
+
+    const explicitPathologies = this.normalizeOptionalString(input.autres_pathologies);
+    if (explicitPathologies) {
+      lines.push(explicitPathologies);
+    }
+
+    const allergies = (input.allergies || [])
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (allergies.length > 0) {
+      lines.push(`Allergies: ${allergies.join(', ')}`);
+    }
+
+    const antecedentSummaries = (input.antecedents || [])
+      .map((item) => {
+        const description = item.description?.trim();
+        if (!description) return undefined;
+
+        const type = item.type ? `[${item.type}] ` : '';
+        const date = item.date?.trim() ? ` | Date: ${item.date.trim()}` : '';
+        const traitement = item.traitement?.trim()
+          ? ` | Traitement: ${item.traitement.trim()}`
+          : '';
+
+        return `${type}${description}${date}${traitement}`;
+      })
+      .filter((value): value is string => Boolean(value));
+
+    if (antecedentSummaries.length > 0) {
+      lines.push(`Antécédents: ${antecedentSummaries.join(' ; ')}`);
+    }
+
+    return lines.length > 0 ? lines.join('\n') : undefined;
+  }
 
   async execute(input: RegisterInput): Promise<AuthResponse> {
     const normalizedEmail = input.email.trim().toLowerCase();
@@ -72,14 +153,13 @@ export class RegisterUseCase {
         prenom: input.prenom,
         nom: input.nom,
         telephone: input.telephone,
-      });
-    } else if (input.role === 'medecin' && input.prenom && input.nom && input.telephone && input.specialite) {
-      await this.authRepository.createMedecin(user.id, {
-        prenom: input.prenom,
-        nom: input.nom,
-        telephone: input.telephone,
-        specialite: input.specialite,
-        tarif_consultation: input.tarif_consultation,
+        date_naissance: this.parseOptionalDate(input.date_naissance),
+        adresse: this.normalizeOptionalString(input.adresse),
+        groupe_sanguin: this.normalizeOptionalString(input.groupe_sanguin),
+        diabete: input.diabete,
+        hypertension: input.hypertension,
+        hepatite: input.hepatite,
+        autres_pathologies: this.buildAutresPathologies(input),
       });
     }
 
@@ -180,17 +260,27 @@ export class LogoutUseCase {
 export class ForgotPasswordUseCase {
   constructor(private authRepository: IAuthRepository) {}
 
-  async execute(email: string): Promise<{ message: string }> {
+  async execute(email: string): Promise<ForgotPasswordResponse> {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
       throw new BadRequestError('Email requis');
     }
 
+    const debugModeEnabled =
+      process.env.NODE_ENV !== 'production' &&
+      process.env.LOG_RESET_TOKEN === 'true';
+    const genericResponseMessage = 'Si cet email existe, un lien de réinitialisation sera envoyé';
+
     const user = await this.authRepository.findUserByEmail(normalizedEmail);
     
     if (!user) {
+      if (debugModeEnabled) {
+        console.info(`[Auth] Forgot-password requested for unknown email: ${normalizedEmail}`);
+        return { message: genericResponseMessage, debugStatus: 'USER_NOT_FOUND' };
+      }
+
       // Don't reveal if user exists
-      return { message: 'Si cet email existe, un lien de réinitialisation sera envoyé' };
+      return { message: genericResponseMessage };
     }
 
     const { token, tokenHash, expiresAt } = generatePasswordResetToken();
@@ -220,7 +310,15 @@ export class ForgotPasswordUseCase {
       console.warn('[Auth] Password reset email not sent:', sendResult.reason);
     }
 
-    return { message: 'Si cet email existe, un lien de réinitialisation sera envoyé' };
+    if (debugModeEnabled) {
+      return {
+        message: genericResponseMessage,
+        debugResetLink: resetLink,
+        debugStatus: sendResult.sent ? 'EMAIL_SENT' : sendResult.reason,
+      };
+    }
+
+    return { message: genericResponseMessage };
   }
 }
 
