@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GmailEmailSchema } from './common.schema';
+import { AvatarUrlSchema, GmailEmailSchema } from './common.schema';
 
 export const RegisterSchema = z.object({
   email: GmailEmailSchema,
@@ -32,6 +32,7 @@ export const UpdateMeSchema = z
     lastName: z.string().min(1).optional(),
     name: z.string().min(1).optional(),
     email: GmailEmailSchema.optional(),
+    avatarUrl: AvatarUrlSchema.nullish(),
   })
   .passthrough();
 

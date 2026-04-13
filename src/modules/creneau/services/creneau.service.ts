@@ -25,9 +25,11 @@ export class CreneauService {
     });
   }
 
-  async findByMedecinId(medecinId: number) {
+  async findByMedecinId(medecinId: number, options?: { includeInactive?: boolean }) {
+    const includeInactive = options?.includeInactive === true;
+
     return await prisma.creneauDisponible.findMany({
-      where: { medecinId, actif: true },
+      where: includeInactive ? { medecinId } : { medecinId, actif: true },
       orderBy: [
         { jour: 'asc' },
         { heure: 'asc' },

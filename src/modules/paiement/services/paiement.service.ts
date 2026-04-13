@@ -4,6 +4,13 @@ import { randomUUID } from 'crypto';
 import { buildSimplePdf } from '../../../shared/utils/simplePdf';
 import { PaydunyaClient } from './paydunya.client';
 
+type PaiementActor = {
+  role: string;
+  patientId?: number;
+  medecinId?: number;
+  secretaireId?: number;
+};
+
 export class PaiementService {
   private readonly allowedPaymentMethods = [
     'especes',
@@ -27,10 +34,56 @@ export class PaiementService {
     return code === 'P2021' || code === 'P2022';
   }
 
-  private async findPaiementsForList() {
+  private async getActorMedecinScope(actor?: PaiementActor, strict = false): Promise<number | null> {
+    if (!actor) return null;
+
+    if (actor.role === 'medecin') {
+      if (actor.medecinId) {
+        return actor.medecinId;
+      }
+
+      if (strict) {
+        throw new AppError('Profil médecin requis', 403);
+      }
+
+      return null;
+    }
+
+    if (actor.role !== 'secretaire') {
+      return null;
+    }
+
+    if (!actor.secretaireId) {
+      if (strict) {
+        throw new AppError('Profil secrétaire requis', 403);
+      }
+      return null;
+    }
+
+    const secretaire = await prisma.secretaire.findFirst({
+      where: { id: actor.secretaireId, isArchived: false },
+      select: { medecinId: true },
+    });
+
+    if (!secretaire?.medecinId) {
+      if (strict) {
+        throw new AppError('Aucun médecin assigné à cette secrétaire', 403);
+      }
+      return null;
+    }
+
+    return secretaire.medecinId;
+  }
+
+  private async findPaiementsForList(medecinId?: number | null) {
+    const relationFilter = medecinId ? { rendezVous: { medecinId } } : {};
+
     try {
       return await prisma.paiement.findMany({
-        where: { isArchived: false },
+        where: {
+          isArchived: false,
+          ...relationFilter,
+        },
         orderBy: { createdAt: 'desc' },
       });
     } catch (error) {
@@ -38,6 +91,7 @@ export class PaiementService {
 
       if (code === 'P2022') {
         return await prisma.paiement.findMany({
+          where: relationFilter,
           orderBy: { id: 'desc' },
         });
       }
@@ -48,6 +102,35 @@ export class PaiementService {
 
       throw error;
     }
+  }
+
+  private async findRendezVousForList(rendezVousIds: number[]) {
+    if (rendezVousIds.length === 0) return [];
+
+    return prisma.rendezVous.findMany({
+      where: { id: { in: rendezVousIds } },
+      select: {
+        id: true,
+        numero: true,
+        date: true,
+        heure: true,
+        statut: true,
+        medecinId: true,
+        medecin: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            specialite: true,
+            user: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
   }
 
   private async findPatientsForList(patientIds: number[]) {
@@ -110,8 +193,45 @@ export class PaiementService {
     return rdv;
   }
 
+  private async assertPaiementAccess(
+    paiement: {
+      patientId: number;
+      rendezVous: {
+        medecinId: number;
+      };
+    },
+    actor?: PaiementActor
+  ) {
+    if (!actor || actor.role === 'admin') {
+      return;
+    }
+
+    if (actor.role === 'patient') {
+      if (actor.patientId !== paiement.patientId) {
+        throw new AppError('Accès interdit', 403);
+      }
+      return;
+    }
+
+    if (actor.role === 'medecin' || actor.role === 'secretaire') {
+      const scopedMedecinId = await this.getActorMedecinScope(actor, true);
+      if (scopedMedecinId !== paiement.rendezVous.medecinId) {
+        throw new AppError('Accès interdit', 403);
+      }
+      return;
+    }
+
+    throw new AppError('Accès interdit', 403);
+  }
+
   private isOnlineMethod(methode: string): boolean {
     return this.onlineMethods.includes(methode);
+  }
+
+  private isOnlineSimulationEnabled(): boolean {
+    return String(process.env.PAYMENT_SIMULATION_ONLINE || '')
+      .trim()
+      .toLowerCase() === 'true';
   }
 
   private getPaydunyaChannels(methode: string): string[] | undefined {
@@ -133,7 +253,10 @@ export class PaiementService {
     return undefined;
   }
 
-  private getPaydunyaUrls(paiementId: number): { callbackUrl?: string; returnUrl?: string; cancelUrl?: string } {
+  private getPaydunyaUrls(
+    paiementId: number,
+    rendezVousId: number
+  ): { callbackUrl?: string; returnUrl?: string; cancelUrl?: string } {
     const apiBase = this.getPublicApiBaseUrl();
     const frontendBase = process.env.FRONTEND_URL?.trim()?.replace(/\/+$/, '');
 
@@ -143,10 +266,14 @@ export class PaiementService {
         (apiBase ? `${apiBase}/api/v1/paiements/webhooks/paydunya` : undefined),
       returnUrl:
         process.env.PAYDUNYA_RETURN_URL?.trim() ||
-        (frontendBase ? `${frontendBase}/patient/paiements?payment=success&paiementId=${paiementId}` : undefined),
+        (frontendBase
+          ? `${frontendBase}/patient/paiements/rendez-vous/${rendezVousId}?payment=success&paiementId=${paiementId}`
+          : undefined),
       cancelUrl:
         process.env.PAYDUNYA_CANCEL_URL?.trim() ||
-        (frontendBase ? `${frontendBase}/patient/paiements?payment=cancelled&paiementId=${paiementId}` : undefined),
+        (frontendBase
+          ? `${frontendBase}/patient/paiements/rendez-vous/${rendezVousId}?payment=cancelled&paiementId=${paiementId}`
+          : undefined),
     };
   }
 
@@ -155,6 +282,24 @@ export class PaiementService {
     if (!raw) return null;
     if (raw.startsWith('PDY-')) return raw.slice(4);
     return raw;
+  }
+
+  private isSimulatedOnlineTransaction(transactionId?: string | null): boolean {
+    return String(transactionId || '').startsWith('SIM-');
+  }
+
+  private buildOnlineSimulationCheckoutUrl(url?: string): string | undefined {
+    const base = url?.trim();
+    if (!base) return undefined;
+
+    try {
+      const parsed = new URL(base);
+      parsed.searchParams.set('simulated', '1');
+      return parsed.toString();
+    } catch {
+      const separator = base.includes('?') ? '&' : '?';
+      return `${base}${separator}simulated=1`;
+    }
   }
 
   private async markPaiementAsPaidFromProvider(paiementId: number, providerToken?: string) {
@@ -193,6 +338,50 @@ export class PaiementService {
         data: {
           statut: 'paye',
           transactionId,
+          date_paiement: new Date(),
+        },
+        include: {
+          patient: true,
+          rendezVous: true,
+        },
+      }),
+    ]);
+
+    return updatedPaiement;
+  }
+
+  private async markPaiementAsPaidFromSimulation(paiementId: number) {
+    const paiement = await prisma.paiement.findFirst({
+      where: { id: paiementId, isArchived: false },
+      include: { rendezVous: true },
+    });
+
+    if (!paiement) {
+      throw new AppError('Paiement non trouvé', 404);
+    }
+
+    if (paiement.statut === 'paye') {
+      return this.findById(paiement.id);
+    }
+
+    if (paiement.rendezVous.statut === 'annule') {
+      throw new AppError("Impossible de confirmer le paiement d'un rendez-vous annulé", 400);
+    }
+
+    if (!['confirme', 'paye'].includes(paiement.rendezVous.statut)) {
+      throw new AppError('Le rendez-vous doit être confirmé avant validation du paiement', 400);
+    }
+
+    const [, updatedPaiement] = await prisma.$transaction([
+      prisma.rendezVous.update({
+        where: { id: paiement.rendezVousId },
+        data: { statut: 'paye' },
+      }),
+      prisma.paiement.update({
+        where: { id: paiement.id },
+        data: {
+          statut: 'paye',
+          transactionId: paiement.transactionId || `SIM-${randomUUID()}`,
           date_paiement: new Date(),
         },
         include: {
@@ -293,6 +482,30 @@ export class PaiementService {
         });
 
     if (this.isOnlineMethod(data.methode)) {
+      const urls = this.getPaydunyaUrls(paiement.id, rdv.id);
+
+      if (this.isOnlineSimulationEnabled()) {
+        const simulationToken = `SIM-${randomUUID()}`;
+        const updatedPaiement = await prisma.paiement.update({
+          where: { id: paiement.id },
+          data: {
+            transactionId: simulationToken,
+            statut: 'en_attente',
+          },
+        });
+
+        return {
+          ...updatedPaiement,
+          paymentSession: {
+            provider: 'online-simulator',
+            token: simulationToken,
+            checkoutUrl: this.buildOnlineSimulationCheckoutUrl(urls.returnUrl),
+            status: 'ready',
+            expiresInSeconds: 900,
+          },
+        };
+      }
+
       if (!this.paydunyaClient.isConfigured()) {
         throw new AppError(
           'Paiement en ligne indisponible. Configuration PayDunya manquante sur le serveur.',
@@ -300,7 +513,6 @@ export class PaiementService {
         );
       }
 
-      const urls = this.getPaydunyaUrls(paiement.id);
       const createResponse = await this.paydunyaClient.createCheckoutInvoice({
         amount: montant,
         description: `Consultation médicale #${rdv.numero}`,
@@ -319,7 +531,8 @@ export class PaiementService {
 
       if (createResponse.response_code !== '00' || !createResponse.token || !createResponse.response_text) {
         throw new AppError(
-          createResponse.description || createResponse.response_text || 'Impossible d’initier la transaction PayDunya',
+          this.paydunyaClient.normalizeProviderMessage(createResponse.description || createResponse.response_text) ||
+            'Impossible d’initier la transaction PayDunya',
           400
         );
       }
@@ -377,6 +590,10 @@ export class PaiementService {
     }
 
     if (this.isOnlineMethod(paiement.methode)) {
+      if (this.isSimulatedOnlineTransaction(paiement.transactionId)) {
+        return this.markPaiementAsPaidFromSimulation(paiement.id);
+      }
+
       const token = this.extractPaydunyaToken(paiement.transactionId);
       if (!token) {
         throw new AppError('Token de transaction en ligne introuvable. Réinitiez le paiement.', 400);
@@ -385,7 +602,8 @@ export class PaiementService {
       const statusResponse = await this.paydunyaClient.confirmCheckoutInvoice(token);
       if (statusResponse.response_code !== '00') {
         throw new AppError(
-          statusResponse.response_text || 'Impossible de vérifier le statut PayDunya',
+          this.paydunyaClient.normalizeProviderMessage(statusResponse.response_text) ||
+            'Impossible de vérifier le statut PayDunya',
           400
         );
       }
@@ -495,15 +713,22 @@ export class PaiementService {
     };
   }
 
-  async findAll() {
+  async findAll(actor?: PaiementActor) {
     try {
-      const paiements = await this.findPaiementsForList();
+      const scopedMedecinId = await this.getActorMedecinScope(actor, false);
+      if ((actor?.role === 'medecin' || actor?.role === 'secretaire') && !scopedMedecinId) {
+        return [];
+      }
+
+      const paiements = await this.findPaiementsForList(scopedMedecinId);
       if (paiements.length === 0) {
         return paiements;
       }
 
       const patientIds = Array.from(new Set(paiements.map((paiement) => paiement.patientId)));
+      const rendezVousIds = Array.from(new Set(paiements.map((paiement) => paiement.rendezVousId)));
       const patients = await this.findPatientsForList(patientIds);
+      const rendezVousList = await this.findRendezVousForList(rendezVousIds);
       const userIds = Array.from(new Set(patients.map((patient) => patient.userId)));
       const users =
         userIds.length > 0
@@ -525,10 +750,25 @@ export class PaiementService {
           },
         ])
       );
+      const rendezVousById = new Map(
+        rendezVousList.map((rendezVous) => [
+          rendezVous.id,
+          {
+            id: rendezVous.id,
+            numero: rendezVous.numero,
+            date: rendezVous.date,
+            heure: rendezVous.heure,
+            statut: rendezVous.statut,
+            medecinId: rendezVous.medecinId,
+            medecin: rendezVous.medecin,
+          },
+        ])
+      );
 
       return paiements.map((paiement) => ({
         ...paiement,
         patient: patientById.get(paiement.patientId) || null,
+        rendezVous: rendezVousById.get(paiement.rendezVousId) || null,
       }));
     } catch (error) {
       if (!this.isMissingTableOrColumnError(error)) {
@@ -540,7 +780,7 @@ export class PaiementService {
     }
   }
 
-  async findById(id: number) {
+  async findById(id: number, actor?: PaiementActor) {
     const paiement = await prisma.paiement.findFirst({
       where: { id, isArchived: false },
       include: {
@@ -567,12 +807,27 @@ export class PaiementService {
       throw new AppError('Paiement non trouvé', 404);
     }
 
+    await this.assertPaiementAccess(paiement, actor);
+
     return paiement;
   }
 
-  async findByPatientId(patientId: number) {
+  async findByPatientId(patientId: number, actor?: PaiementActor) {
+    if (actor?.role === 'patient' && actor.patientId !== patientId) {
+      throw new AppError('Accès interdit', 403);
+    }
+
+    const scopedMedecinId = await this.getActorMedecinScope(actor, false);
+    if ((actor?.role === 'medecin' || actor?.role === 'secretaire') && !scopedMedecinId) {
+      return [];
+    }
+
     return await prisma.paiement.findMany({
-      where: { patientId, isArchived: false },
+      where: {
+        patientId,
+        isArchived: false,
+        ...(scopedMedecinId ? { rendezVous: { medecinId: scopedMedecinId } } : {}),
+      },
       include: {
         patient: true,
         rendezVous: {
@@ -587,8 +842,17 @@ export class PaiementService {
     });
   }
 
-  async findByRendezVousId(rendezVousId: number) {
-    return await prisma.paiement.findFirst({
+  async findRendezVousOwnerPatientId(rendezVousId: number) {
+    const rendezVous = await prisma.rendezVous.findUnique({
+      where: { id: rendezVousId },
+      select: { patientId: true },
+    });
+
+    return rendezVous?.patientId ?? null;
+  }
+
+  async findByRendezVousId(rendezVousId: number, actor?: PaiementActor) {
+    const paiement = await prisma.paiement.findFirst({
       where: { rendezVousId, isArchived: false },
       include: {
         patient: true,
@@ -599,6 +863,13 @@ export class PaiementService {
         },
       },
     });
+
+    if (!paiement) {
+      return null;
+    }
+
+    await this.assertPaiementAccess(paiement, actor);
+    return paiement;
   }
 
   async create(data: {
@@ -666,15 +937,21 @@ export class PaiementService {
       montant?: number;
       methode?: string;
       transactionId?: string;
-    }
+    },
+    actor?: PaiementActor
   ) {
     const paiement = await prisma.paiement.findFirst({
       where: { id, isArchived: false },
+      include: {
+        rendezVous: true,
+      },
     });
 
     if (!paiement) {
       throw new AppError('Paiement non trouvé', 404);
     }
+
+    await this.assertPaiementAccess(paiement, actor);
 
     return await prisma.paiement.update({
       where: { id },
@@ -686,7 +963,7 @@ export class PaiementService {
     });
   }
 
-  async confirm(id: number) {
+  async confirm(id: number, actor?: PaiementActor) {
     const paiement = await prisma.paiement.findFirst({
       where: { id, isArchived: false },
       include: {
@@ -697,6 +974,8 @@ export class PaiementService {
     if (!paiement) {
       throw new AppError('Paiement non trouvé', 404);
     }
+
+    await this.assertPaiementAccess(paiement, actor);
 
     if (paiement.statut === 'paye') {
       throw new AppError('Ce paiement est déjà confirmé', 400);
@@ -734,14 +1013,19 @@ export class PaiementService {
     return updatedPaiement;
   }
 
-  async fail(id: number) {
+  async fail(id: number, actor?: PaiementActor) {
     const paiement = await prisma.paiement.findFirst({
       where: { id, isArchived: false },
+      include: {
+        rendezVous: true,
+      },
     });
 
     if (!paiement) {
       throw new AppError('Paiement non trouvé', 404);
     }
+
+    await this.assertPaiementAccess(paiement, actor);
 
     if (paiement.statut === 'paye') {
       throw new AppError('Un paiement confirmé ne peut pas être marqué échoué', 400);
@@ -757,6 +1041,60 @@ export class PaiementService {
         rendezVous: true,
       },
     });
+  }
+
+  async simulate(userId: number, rendezVousId: number) {
+    const patient = await this.findPatientByUserIdOrThrow(userId);
+    const rdv = await prisma.rendezVous.findUnique({
+      where: { id: rendezVousId },
+      include: { medecin: true },
+    });
+
+    if (!rdv) throw new AppError('Rendez-vous non trouvé', 404);
+    if (rdv.patientId !== patient.id) throw new AppError('Accès interdit pour ce rendez-vous', 403);
+    if (!['confirme', 'paye'].includes(rdv.statut)) {
+      throw new AppError('Le rendez-vous doit être confirmé avant le paiement', 400);
+    }
+
+    const existing = await prisma.paiement.findFirst({
+      where: { rendezVousId, isArchived: false },
+    });
+
+    if (existing?.statut === 'paye') {
+      return this.findById(existing.id);
+    }
+
+    const montant = rdv.medecin.tarif_consultation > 0 ? rdv.medecin.tarif_consultation : 15000;
+    const transactionId = `SIM-${randomUUID()}`;
+
+    const paiementId = existing?.id ?? null;
+
+    const [, updatedPaiement] = await prisma.$transaction([
+      prisma.rendezVous.update({
+        where: { id: rendezVousId },
+        data: { statut: 'paye' },
+      }),
+      paiementId
+        ? prisma.paiement.update({
+            where: { id: paiementId },
+            data: { statut: 'paye', montant, methode: 'especes', transactionId, date_paiement: new Date() },
+            include: { patient: true, rendezVous: true },
+          })
+        : prisma.paiement.create({
+            data: {
+              patientId: patient.id,
+              rendezVousId,
+              montant,
+              methode: 'especes',
+              statut: 'paye',
+              transactionId,
+              date_paiement: new Date(),
+            },
+            include: { patient: true, rendezVous: true },
+          }),
+    ]);
+
+    return updatedPaiement;
   }
 
   async delete(id: number) {
@@ -779,7 +1117,7 @@ export class PaiementService {
 
   async generateFacturePdf(
     paiementId: number,
-    actor: { role: string; patientId?: number; medecinId?: number }
+    actor: { role: string; patientId?: number; medecinId?: number; secretaireId?: number }
   ) {
     const paiement = await prisma.paiement.findFirst({
       where: { id: paiementId, isArchived: false },
@@ -805,12 +1143,8 @@ export class PaiementService {
       throw new AppError('Paiement non trouvé', 404);
     }
 
-    if (actor.role === 'patient' && actor.patientId !== paiement.patientId) {
-      throw new AppError('Accès interdit à cette facture', 403);
-    }
-    if (actor.role === 'medecin' && actor.medecinId !== paiement.rendezVous.medecinId) {
-      throw new AppError('Accès interdit à cette facture', 403);
-    }
+    await this.assertPaiementAccess(paiement, actor);
+
     if (paiement.statut !== 'paye') {
       throw new AppError('La facture est disponible uniquement pour un paiement confirmé', 400);
     }

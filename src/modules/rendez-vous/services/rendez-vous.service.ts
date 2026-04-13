@@ -124,75 +124,116 @@ function resolveRequestedSlot(heureDemandee: string, creneauxHeures: string[]): 
   };
 }
 
-export class RendezVousService {
-  async getDisponibilitePourValidation(rendezVousId: number): Promise<{
-    available: boolean;
-    reason: string | null;
-    creneaux: string[];
-    heureDemandeeDisponible: boolean;
-    conflictCount: number;
-    creneauReference: string | null;
-  }> {
-    const rdv = await this.findByIdOrThrow(rendezVousId);
-    const jour = new Date(rdv.date).getDay();
+interface DayAvailability {
+  available: boolean;
+  reason: string | null;
+  creneaux: string[];
+  creneauxDisponibles: string[];
+  heureDemandeeDisponible: boolean;
+  conflictCount: number;
+  creneauReference: string | null;
+}
 
+export class RendezVousService {
+  private async getActiveCreneauxHeures(medecinId: number, date: Date): Promise<string[]> {
+    const jour = new Date(date).getDay();
     const creneaux = await prisma.creneauDisponible.findMany({
       where: {
-        medecinId: rdv.medecinId,
+        medecinId,
         jour,
         actif: true,
       },
       orderBy: { heure: 'asc' },
+      select: { heure: true },
     });
 
-    const creneauxHeures = creneaux.map((c) => c.heure);
-    const slotMatch = resolveRequestedSlot(rdv.heure, creneauxHeures);
-    const heureDemandeeDisponible = Boolean(slotMatch.slotHeure);
+    return creneaux.map((creneau) => creneau.heure);
+  }
 
-    let conflictCount = 0;
-    if (heureDemandeeDisponible && slotMatch.slotStartMinutes !== null) {
-      const existingRdv = await prisma.rendezVous.findMany({
-        where: {
-          medecinId: rdv.medecinId,
-          date: rdv.date,
-          statut: {
-            not: StatutRendezVous.annule,
-          },
-          NOT: {
-            id: rdv.id,
-          },
-        },
-        select: { heure: true },
-      });
+  private async getExistingRendezVousHeures(
+    medecinId: number,
+    date: Date,
+    excludeRendezVousId?: number
+  ): Promise<string[]> {
+    const rendezVous = await rendezVousRepository.findByDate(medecinId, date);
 
-      const slotStart = slotMatch.slotStartMinutes;
-      const slotEnd = slotStart + slotMatch.slotDurationMinutes;
+    return rendezVous
+      .filter((existing) => !excludeRendezVousId || existing.id !== excludeRendezVousId)
+      .map((existing) => existing.heure);
+  }
 
-      conflictCount = existingRdv.filter((existing) => {
-        const existingMinutes = parseHeureToMinutes(existing.heure);
-        if (existingMinutes === null) {
-          return false;
-        }
-        return existingMinutes >= slotStart && existingMinutes < slotEnd;
-      }).length;
+  private computeDayAvailability(params: {
+    creneauxHeures: string[];
+    existingRendezVousHeures: string[];
+    requestedHeure?: string;
+  }): DayAvailability {
+    const { creneauxHeures, existingRendezVousHeures, requestedHeure } = params;
+    const parsedSlots = creneauxHeures
+      .map((heure) => ({ heure, minutes: parseHeureToMinutes(heure) }))
+      .filter((slot): slot is { heure: string; minutes: number } => slot.minutes !== null)
+      .sort((a, b) => a.minutes - b.minutes);
+
+    const slotDurationMinutes = inferSlotDurationMinutes(parsedSlots.map((slot) => slot.minutes));
+
+    const creneauxDisponibles = parsedSlots
+      .filter((slot) => {
+        const slotEnd = slot.minutes + slotDurationMinutes;
+
+        return !existingRendezVousHeures.some((heure) => {
+          const existingMinutes = parseHeureToMinutes(heure);
+          if (existingMinutes === null) {
+            return false;
+          }
+
+          return existingMinutes >= slot.minutes && existingMinutes < slotEnd;
+        });
+      })
+      .map((slot) => slot.heure);
+
+    if (!requestedHeure) {
+      return {
+        available: creneauxDisponibles.length > 0,
+        reason: creneauxDisponibles.length > 0 ? null : 'Aucun créneau actif disponible pour ce jour',
+        creneaux: parsedSlots.map((slot) => slot.heure),
+        creneauxDisponibles,
+        heureDemandeeDisponible: false,
+        conflictCount: 0,
+        creneauReference: null,
+      };
     }
 
-    if (!heureDemandeeDisponible) {
+    const slotMatch = resolveRequestedSlot(requestedHeure, parsedSlots.map((slot) => slot.heure));
+    const heureDemandeeDisponible = Boolean(slotMatch.slotHeure);
+
+    if (!heureDemandeeDisponible || slotMatch.slotStartMinutes === null) {
       return {
         available: false,
         reason: 'Le médecin n’a pas de créneau actif à cette heure',
-        creneaux: creneauxHeures,
+        creneaux: parsedSlots.map((slot) => slot.heure),
+        creneauxDisponibles,
         heureDemandeeDisponible,
-        conflictCount,
+        conflictCount: 0,
         creneauReference: slotMatch.slotHeure,
       };
     }
+
+    const slotStart = slotMatch.slotStartMinutes;
+    const slotEnd = slotStart + slotMatch.slotDurationMinutes;
+    const conflictCount = existingRendezVousHeures.filter((heure) => {
+      const existingMinutes = parseHeureToMinutes(heure);
+      if (existingMinutes === null) {
+        return false;
+      }
+
+      return existingMinutes >= slotStart && existingMinutes < slotEnd;
+    }).length;
 
     if (conflictCount > 0) {
       return {
         available: false,
         reason: 'Le médecin est déjà occupé sur ce créneau',
-        creneaux: creneauxHeures,
+        creneaux: parsedSlots.map((slot) => slot.heure),
+        creneauxDisponibles,
         heureDemandeeDisponible,
         conflictCount,
         creneauReference: slotMatch.slotHeure,
@@ -202,11 +243,58 @@ export class RendezVousService {
     return {
       available: true,
       reason: null,
-      creneaux: creneauxHeures,
+      creneaux: parsedSlots.map((slot) => slot.heure),
+      creneauxDisponibles,
       heureDemandeeDisponible,
       conflictCount: 0,
       creneauReference: slotMatch.slotHeure,
     };
+  }
+
+  private async getAvailabilityForMedecinOnDate(params: {
+    medecinId: number;
+    date: Date;
+    requestedHeure?: string;
+    excludeRendezVousId?: number;
+  }): Promise<DayAvailability> {
+    const { medecinId, date, requestedHeure, excludeRendezVousId } = params;
+    const [creneauxHeures, existingRendezVousHeures] = await Promise.all([
+      this.getActiveCreneauxHeures(medecinId, date),
+      this.getExistingRendezVousHeures(medecinId, date, excludeRendezVousId),
+    ]);
+
+    return this.computeDayAvailability({
+      creneauxHeures,
+      existingRendezVousHeures,
+      requestedHeure,
+    });
+  }
+
+  async getDisponibilitePourCreneau(params: {
+    medecinId: number;
+    date: Date;
+    heure: string;
+    excludeRendezVousId?: number;
+  }): Promise<DayAvailability> {
+    const { medecinId, date, heure, excludeRendezVousId } = params;
+
+    return this.getAvailabilityForMedecinOnDate({
+      medecinId,
+      date,
+      requestedHeure: heure,
+      excludeRendezVousId,
+    });
+  }
+
+  async getDisponibilitePourValidation(rendezVousId: number): Promise<DayAvailability> {
+    const rdv = await this.findByIdOrThrow(rendezVousId);
+
+    return this.getDisponibilitePourCreneau({
+      medecinId: rdv.medecinId,
+      date: rdv.date,
+      heure: rdv.heure,
+      excludeRendezVousId: rdv.id,
+    });
   }
 
   private async findByIdOrThrow(id: number): Promise<RendezVous> {
@@ -315,30 +403,36 @@ export class RendezVousService {
     prestation_type?: string;
     urgent_ia?: boolean;
   }) {
-    // Vérifier si le médecin est disponible
-    const isDisponible = await this.isMedecinDisponible(data.medecinId, data.date, data.heure);
-    if (!isDisponible) {
-      throw new BadRequestError('Le médecin n\'est pas disponible à cette heure');
+    const disponibilite = await this.getAvailabilityForMedecinOnDate({
+      medecinId: data.medecinId,
+      date: data.date,
+      requestedHeure: data.heure,
+    });
+
+    if (!disponibilite.available) {
+      throw new BadRequestError(disponibilite.reason || 'Le médecin n\'est pas disponible à cette heure');
     }
 
     return rendezVousRepository.create(data);
   }
 
   async isMedecinDisponible(medecinId: number, date: Date, heure: string): Promise<boolean> {
-    const rdvExistants = await rendezVousRepository.findByDate(medecinId, date);
-    return !rdvExistants.some(rdv => rdv.heure === heure);
+    const disponibilite = await this.getAvailabilityForMedecinOnDate({
+      medecinId,
+      date,
+      requestedHeure: heure,
+    });
+
+    return disponibilite.available;
   }
 
   async getCreneauxDisponibles(medecinId: number, date: Date): Promise<string[]> {
-    const horaires = [
-      '08:00', '09:00', '10:00', '11:00', '12:00',
-      '14:00', '15:00', '16:00', '17:00'
-    ];
+    const disponibilite = await this.getAvailabilityForMedecinOnDate({
+      medecinId,
+      date,
+    });
 
-    const rdvExistants = await rendezVousRepository.findByDate(medecinId, date);
-    const heuresOccupees = rdvExistants.map(rdv => rdv.heure);
-
-    return horaires.filter(h => !heuresOccupees.includes(h));
+    return disponibilite.creneauxDisponibles;
   }
 
   async peutAnnuler(rendezVousId: number): Promise<boolean> {

@@ -4,6 +4,15 @@ import { AuthRequest } from '../../../shared/middleware/auth.middleware';
 import { settingsService } from '../services/settings.service';
 
 export class SettingsController {
+  async getPublicSiteSettings(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const settings = await settingsService.getPublicSiteSettings();
+      return res.json(ApiResponse.success(settings));
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAppSettings(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const settings = await settingsService.getAdminSettings();

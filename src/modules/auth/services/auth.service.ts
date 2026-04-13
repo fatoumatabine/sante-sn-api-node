@@ -70,6 +70,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        avatarUrl: user.avatarUrl,
       },
       ...tokens,
     };
@@ -121,6 +122,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        avatarUrl: user.avatarUrl,
         patientId,
         medecinId,
         secretaireId,
@@ -136,6 +138,9 @@ export class AuthService {
 
   async forgotPassword(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
+    const debugModeEnabled =
+      process.env.LOG_RESET_TOKEN === 'true' ||
+      process.env.NODE_ENV !== 'production';
     const user = await authRepository.findUserByEmail(normalizedEmail);
     
     if (!user) {
@@ -159,8 +164,8 @@ export class AuthService {
     });
 
     const shouldLogResetLink =
-      process.env.LOG_RESET_TOKEN === 'true' ||
-      (process.env.NODE_ENV === 'development' && !sendResult.sent);
+      debugModeEnabled ||
+      (!sendResult.sent && process.env.NODE_ENV === 'development');
 
     if (shouldLogResetLink) {
       console.info(`[Auth] Password reset link for ${user.email}: ${resetLink}`);

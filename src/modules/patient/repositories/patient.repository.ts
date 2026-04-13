@@ -1,11 +1,45 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../../../config/db';
 import { AppError } from '../../../shared/utils/AppError';
+import { readUserAvatarUrl, writeUserAvatarUrl } from '../../../shared/utils/user-avatar';
 
-const prisma = new PrismaClient();
+type TriageLevel = 'faible' | 'modere' | 'eleve';
+type TriageOrientation = 'auto_soin' | 'rendez_vous' | 'urgence' | 'revue_humaine';
+
+const toStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+};
+
+const mapPatientTriageEvaluation = (item: {
+  id: number;
+  niveau: string;
+  urgent: boolean;
+  specialiteConseillee: string | null;
+  recommandations: unknown;
+  redFlags: unknown;
+  needsHumanReview: boolean;
+  orientation: string;
+  aiModel: string | null;
+  createdAt: Date;
+}) => ({
+  id: item.id,
+  niveau: item.niveau,
+  urgent: item.urgent,
+  specialiteConseillee: item.specialiteConseillee,
+  recommandations: toStringArray(item.recommandations),
+  redFlags: toStringArray(item.redFlags),
+  needsHumanReview: item.needsHumanReview,
+  orientation: item.orientation,
+  aiModel: item.aiModel,
+  createdAt: item.createdAt,
+});
 
 export class PatientRepository {
   async findPatientByUserId(userId: number) {
-    return prisma.patient.findFirst({
+    const patient = await prisma.patient.findFirst({
       where: { userId, isArchived: false, user: { isArchived: false } },
       include: {
         user: {
@@ -18,6 +52,18 @@ export class PatientRepository {
         }
       }
     });
+
+    if (!patient) {
+      return null;
+    }
+
+    return {
+      ...patient,
+      user: {
+        ...patient.user,
+        avatarUrl: await readUserAvatarUrl(prisma, patient.userId),
+      },
+    };
   }
 
   async getPatientRendezVous(patientId: number) {
@@ -55,6 +101,99 @@ export class PatientRepository {
       },
       orderBy: { date: 'desc' }
     });
+  }
+
+  async getPatientMedicalRecord(patientId: number) {
+    const [patient, consultationsCount, ordonnancesCount, upcomingAppointmentsCount, triageCount, recentConsultations] =
+      await Promise.all([
+        prisma.patient.findFirst({
+          where: { id: patientId, isArchived: false, user: { isArchived: false } },
+          include: {
+            user: {
+              select: {
+                email: true,
+              },
+            },
+          },
+        }),
+        prisma.consultation.count({
+          where: { patientId, isArchived: false },
+        }),
+        prisma.ordonnance.count({
+          where: { patientId, isArchived: false },
+        }),
+        prisma.rendezVous.count({
+          where: {
+            patientId,
+            date: { gte: new Date() },
+            statut: { in: ['en_attente', 'confirme', 'paye'] },
+          },
+        }),
+        prisma.patientTriageEvaluation.count({
+          where: { patientId },
+        }),
+        prisma.consultation.findMany({
+          where: { patientId, isArchived: false },
+          include: {
+            medecin: {
+              select: {
+                prenom: true,
+                nom: true,
+                specialite: true,
+              },
+            },
+            ordonnance: {
+              select: {
+                id: true,
+              },
+            },
+          },
+          orderBy: { date: 'desc' },
+          take: 5,
+        }),
+      ]);
+
+    if (!patient) {
+      throw new AppError('Patient non trouvé', 404);
+    }
+
+    return {
+      patient: {
+        id: patient.id,
+        prenom: patient.prenom,
+        nom: patient.nom,
+        email: patient.user.email,
+        telephone: patient.telephone,
+        adresse: patient.adresse,
+        dateNaissance: patient.date_naissance,
+        groupeSanguin: patient.groupe_sanguin,
+        diabete: patient.diabete,
+        hypertension: patient.hypertension,
+        hepatite: patient.hepatite,
+        autresPathologies: patient.autres_pathologies,
+      },
+      summary: {
+        consultationsCount,
+        ordonnancesCount,
+        upcomingAppointmentsCount,
+        triageCount,
+        lastConsultationAt: recentConsultations[0]?.date || null,
+      },
+      recentConsultations: recentConsultations.map((consultation) => ({
+        id: consultation.id,
+        date: consultation.date,
+        diagnostic: consultation.diagnostic,
+        notes: consultation.observations,
+        ordonnanceId: consultation.ordonnance?.id || null,
+        medecin: consultation.medecin
+          ? {
+              prenom: consultation.medecin.prenom,
+              nom: consultation.medecin.nom,
+              specialite: consultation.medecin.specialite,
+            }
+          : null,
+      })),
+    };
   }
 
   async getPatientDashboard(patientId: number) {
@@ -124,6 +263,7 @@ export class PatientRepository {
       nom?: string;
       telephone?: string;
       email?: string;
+      avatarUrl?: string | null;
     }
   ) {
     const patient = await prisma.patient.findFirst({
@@ -199,6 +339,14 @@ export class PatientRepository {
       }),
     ]);
 
+    if (data.avatarUrl !== undefined) {
+      await writeUserAvatarUrl(
+        prisma,
+        patient.userId,
+        typeof data.avatarUrl === 'string' ? data.avatarUrl.trim() || null : null
+      );
+    }
+
     return this.findPatientByUserId(userId);
   }
 
@@ -206,92 +354,100 @@ export class PatientRepository {
     patientId: number,
     data: {
       responses: Record<string, string | string[]>;
-      niveau: 'faible' | 'modere' | 'eleve';
+      niveau: TriageLevel;
       urgent: boolean;
       specialiteConseillee?: string;
       recommandations: string[];
+      redFlags: string[];
+      needsHumanReview: boolean;
+      orientation: TriageOrientation;
+      aiModel?: string;
     }
   ) {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "PatientTriageEvaluation" (
-        "id" SERIAL PRIMARY KEY,
-        "patientId" INTEGER NOT NULL REFERENCES "Patient"("id") ON DELETE CASCADE,
-        "responses" JSONB NOT NULL,
-        "niveau" TEXT NOT NULL,
-        "urgent" BOOLEAN NOT NULL DEFAULT false,
-        "specialiteConseillee" TEXT,
-        "recommandations" JSONB NOT NULL,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await prisma.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "PatientTriageEvaluation_patientId_createdAt_idx"
-      ON "PatientTriageEvaluation" ("patientId", "createdAt")
-    `);
-
     const rows = await prisma.$queryRawUnsafe<
       Array<{
         id: number;
         niveau: string;
         urgent: boolean;
         specialiteConseillee: string | null;
-        recommandations: string[] | unknown;
+        recommandations: unknown;
+        redFlags: unknown;
+        needsHumanReview: boolean;
+        orientation: string;
+        aiModel: string | null;
         createdAt: Date;
       }>
     >(
       `
       INSERT INTO "PatientTriageEvaluation"
-        ("patientId", "responses", "niveau", "urgent", "specialiteConseillee", "recommandations")
+        (
+          "patientId",
+          "responses",
+          "niveau",
+          "urgent",
+          "specialiteConseillee",
+          "recommandations",
+          "redFlags",
+          "needsHumanReview",
+          "orientation",
+          "aiModel"
+        )
       VALUES
-        ($1, $2::jsonb, $3, $4, $5, $6::jsonb)
-      RETURNING "id", "niveau", "urgent", "specialiteConseillee", "recommandations", "createdAt"
+        ($1, $2::jsonb, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10)
+      RETURNING
+        "id",
+        "niveau",
+        "urgent",
+        "specialiteConseillee",
+        "recommandations",
+        "redFlags",
+        "needsHumanReview",
+        "orientation",
+        "aiModel",
+        "createdAt"
       `,
       patientId,
       JSON.stringify(data.responses),
       data.niveau,
       data.urgent,
-      data.specialiteConseillee || null,
-      JSON.stringify(data.recommandations)
+      data.specialiteConseillee?.trim() || null,
+      JSON.stringify(data.recommandations),
+      JSON.stringify(data.redFlags),
+      data.needsHumanReview,
+      data.orientation,
+      data.aiModel?.trim() || null
     );
 
-    const created = rows[0];
-    return {
-      id: created.id,
-      niveau: created.niveau,
-      urgent: created.urgent,
-      specialiteConseillee: created.specialiteConseillee,
-      recommandations: Array.isArray(created.recommandations) ? created.recommandations : [],
-      createdAt: created.createdAt,
-    };
+    return mapPatientTriageEvaluation(rows[0]);
   }
 
   async getPatientTriageHistory(patientId: number, limit: number = 10) {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "PatientTriageEvaluation" (
-        "id" SERIAL PRIMARY KEY,
-        "patientId" INTEGER NOT NULL REFERENCES "Patient"("id") ON DELETE CASCADE,
-        "responses" JSONB NOT NULL,
-        "niveau" TEXT NOT NULL,
-        "urgent" BOOLEAN NOT NULL DEFAULT false,
-        "specialiteConseillee" TEXT,
-        "recommandations" JSONB NOT NULL,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
     const rows = await prisma.$queryRawUnsafe<
       Array<{
         id: number;
         niveau: string;
         urgent: boolean;
         specialiteConseillee: string | null;
-        recommandations: string[] | unknown;
+        recommandations: unknown;
+        redFlags: unknown;
+        needsHumanReview: boolean;
+        orientation: string;
+        aiModel: string | null;
         createdAt: Date;
       }>
     >(
       `
-      SELECT "id", "niveau", "urgent", "specialiteConseillee", "recommandations", "createdAt"
+      SELECT
+        "id",
+        "niveau",
+        "urgent",
+        "specialiteConseillee",
+        "recommandations",
+        "redFlags",
+        "needsHumanReview",
+        "orientation",
+        "aiModel",
+        "createdAt"
       FROM "PatientTriageEvaluation"
       WHERE "patientId" = $1
       ORDER BY "createdAt" DESC
@@ -301,14 +457,29 @@ export class PatientRepository {
       limit
     );
 
-    return rows.map((item) => ({
-      id: item.id,
-      niveau: item.niveau,
-      urgent: item.urgent,
-      specialiteConseillee: item.specialiteConseillee,
-      recommandations: Array.isArray(item.recommandations) ? item.recommandations : [],
-      createdAt: item.createdAt,
-    }));
+    return rows.map(mapPatientTriageEvaluation);
+  }
+
+  async listActiveSpecialites(): Promise<string[]> {
+    const medecins = await prisma.medecin.findMany({
+      where: {
+        isArchived: false,
+        user: {
+          isArchived: false,
+        },
+      },
+      select: {
+        specialite: true,
+      },
+      distinct: ['specialite'],
+      orderBy: {
+        specialite: 'asc',
+      },
+    });
+
+    return medecins
+      .map((medecin) => medecin.specialite.trim())
+      .filter((specialite) => specialite.length > 0);
   }
 }
 

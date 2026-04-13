@@ -9,6 +9,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ==================== ENUMS ====================
@@ -60,6 +61,7 @@ model User {
   email                  String    @unique
   password               String
   name                   String
+  avatarUrl              String?
   role                   Role      @default(patient)
   emailVerifiedAt        DateTime?
   rememberToken          String?
@@ -400,6 +402,10 @@ model PatientTriageEvaluation {
   urgent              Boolean  @default(false)
   specialiteConseillee String?
   recommandations     Json
+  redFlags            Json
+  needsHumanReview    Boolean  @default(false)
+  orientation         String
+  aiModel             String?
   createdAt           DateTime @default(now())
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)

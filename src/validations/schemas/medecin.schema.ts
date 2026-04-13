@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PaginationQuerySchema } from './common.schema';
+import { AvatarUrlSchema, GmailEmailSchema, PaginationQuerySchema } from './common.schema';
 
 export const CreateMedecinSchema = z.object({
   prenom: z.string().min(2, 'Le prénom doit contenir au moins 2 caractères'),
@@ -10,7 +10,10 @@ export const CreateMedecinSchema = z.object({
   tarif_consultation: z.number().optional(),
 });
 
-export const UpdateMedecinSchema = CreateMedecinSchema.partial();
+export const UpdateMedecinSchema = CreateMedecinSchema.partial().extend({
+  email: GmailEmailSchema.optional(),
+  avatarUrl: AvatarUrlSchema.nullish(),
+});
 
 export const MedecinQuerySchema = z.object({
   specialite: z.string().optional(),

@@ -4,6 +4,7 @@ import { useCases } from '../../../shared/di/container';
 import { AuthRequest } from '../../../shared/middleware/auth.middleware';
 import { prisma } from '../../../config/db';
 import bcrypt from 'bcryptjs';
+import { readUserAvatarUrl, writeUserAvatarUrl } from '../../../shared/utils/user-avatar';
 
 // Controller utilisant les UseCases via DI Container
 export class AuthController {
@@ -95,11 +96,13 @@ export class AuthController {
         lastName,
         name,
         email,
+        avatarUrl,
       } = req.body as {
         firstName?: string;
         lastName?: string;
         name?: string;
         email?: string;
+        avatarUrl?: string | null;
       };
 
       const nextName = name || `${firstName || ''} ${lastName || ''}`.trim();
@@ -130,6 +133,12 @@ export class AuthController {
         },
       });
 
+      if (avatarUrl !== undefined) {
+        await writeUserAvatarUrl(prisma, userId, typeof avatarUrl === 'string' ? avatarUrl.trim() || null : null);
+      }
+
+      const storedAvatarUrl = await readUserAvatarUrl(prisma, userId);
+
       return res.status(200).json(
         ApiResponse.success(
           {
@@ -137,6 +146,7 @@ export class AuthController {
             email: updated.email,
             name: updated.name,
             role: updated.role,
+            avatarUrl: storedAvatarUrl,
           },
           'Profil mis à jour'
         )

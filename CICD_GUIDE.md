@@ -48,6 +48,8 @@ Déclenché sur:
 5. Migration Prisma `npx prisma migrate deploy`
 6. Healthcheck `GET /health`
 
+Si `RUN_DB_SEED_ON_START=true`, le conteneur lance aussi un seed de demo idempotent apres les migrations.
+
 ## 3. Secrets GitHub requis
 
 Configurer ces secrets dans le repo API:
@@ -57,10 +59,12 @@ Configurer ces secrets dans le repo API:
 - `DEPLOY_SSH_PRIVATE_KEY`: clé privée SSH (format PEM)
 - `DOCKERHUB_USERNAME`: utilisateur Docker Hub
 - `DOCKERHUB_TOKEN`: Access Token Docker Hub (lecture pull sur le serveur + push via GitHub Actions)
-- `DATABASE_URL`: URL PostgreSQL production
+- `DATABASE_URL`: URL PostgreSQL poolée pour l'application (Neon `-pooler` recommandé)
+- `DIRECT_URL`: URL PostgreSQL directe pour Prisma migrations/introspection
 - `JWT_SECRET`: secret JWT access token
 - `JWT_REFRESH_SECRET`: secret JWT refresh token
 - `FRONTEND_URL`: URL du frontend (CORS)
+- `RUN_DB_SEED_ON_START`: `true` pour injecter les donnees de demo idempotentes au demarrage, `false` pour ne pas lancer le seed
 - `API_BASE_URL`: URL publique de l'API (utilisée pour callback provider)
 - `APP_PORT`: port de l'API sur le serveur (ex: `5000`)
 - `SMTP_HOST`: hôte SMTP (ex: `smtp.gmail.com`)
@@ -69,6 +73,10 @@ Configurer ces secrets dans le repo API:
 - `SMTP_USER`: utilisateur SMTP (adresse email d’envoi)
 - `SMTP_PASS`: mot de passe / app password SMTP
 - `MAIL_FROM`: expéditeur affiché (ex: `Sante SN <no-reply@domain.tld>`)
+- `LOG_RESET_TOKEN`: `true` pour logger le lien de reset et exposer les infos de debug du flux forgot-password
+- `OPENAI_API_KEY`: clé API OpenAI pour le triage patient, optionnelle si `OPENAI_TRIAGE_FALLBACK=true`
+- `OPENAI_TRIAGE_MODEL`: optionnel, ex: `gpt-5.4`
+- `OPENAI_TRIAGE_FALLBACK`: `true` pour utiliser le fallback local si OpenAI est indisponible, `false` pour échouer explicitement
 - `PAYDUNYA_MASTER_KEY`: clé master PayDunya
 - `PAYDUNYA_PRIVATE_KEY`: clé privée PayDunya
 - `PAYDUNYA_TOKEN`: token PayDunya
@@ -89,6 +97,13 @@ Dossier cible:
 
 Le pipeline copie automatiquement `docker-compose.prod.yml` et génère `.env` sur ce dossier.
 
+Déploiement manuel:
+- Copier `.env.production.example` vers `.env`
+- Renseigner `IMAGE=` avec l'image Docker à déployer
+- Remplacer tous les placeholders (`change_me`, domaines, SMTP, PayDunya)
+- Utiliser un `DATABASE_URL` accessible depuis le conteneur API, pas `localhost` sauf si la base tourne dans le meme namespace reseau
+- Avec Neon, mettre l'endpoint `-pooler` dans `DATABASE_URL` et l'endpoint direct dans `DIRECT_URL`
+
 ## 5. Lancement local Docker
 
 ```bash
@@ -96,7 +111,19 @@ docker compose up -d --build
 ```
 
 API:
-- `http://localhost:5000/health`
+- `http://localhost:5000/`clear
+
+## 5.b Push manuel de l'image Docker
+
+```bash
+docker login
+cd sante-sn-api-node
+DOCKER_IMAGE=docker.io/<dockerhub-user>/sante-sn-api-node:latest npm run docker:publish
+```
+
+Optionnel:
+- utiliser aussi un tag de commit ou de version en plus de `latest`
+- verifier localement l'image avant le push avec `docker run --rm -p 5000:5000 ...`
 
 ## 6. Rollback
 
@@ -108,9 +135,20 @@ Stratégie:
 docker compose --env-file .env -f docker-compose.prod.yml up -d
 ```
 
-## 7. Notes importantes
+## 7. Base de données cloud avec Neon
 
-- En production, préférer une base PostgreSQL managée ou un conteneur DB séparé avec sauvegardes.
+Pour une solution de base de données PostgreSQL hébergée et scalable, nous recommandons [Neon](https://neon.tech). Consultez le guide dédié `NEON_SETUP_GUIDE.md` pour :
+
+- Créer un projet Neon gratuit
+- Configurer `DATABASE_URL` et `DIRECT_URL` dans `.env` et les secrets GitHub
+- Utiliser le branching pour les environnements de prévisualisation
+- Activer le connection pooling pour les applications serverless
+
+## 8. Notes importantes
+
+- En production, préférer une base PostgreSQL managée (Neon, Supabase, AWS RDS) ou un conteneur DB séparé avec sauvegardes.
 - Le job `deploy` est ignoré tant que les secrets SSH ne sont pas configurés.
 - Le endpoint `/health` doit toujours rester disponible pour vérifier le succès du déploiement.
+- Sur Render, une instance gratuite ou en veille peut mettre plusieurs secondes a demarrer. Pour le frontend Vercel, prevoir une URL API stable et un timeout/retry cote client.
 - Sans variables SMTP valides, le endpoint `POST /api/v1/auth/forgot-password` répondra OK mais n’enverra pas d’email.
+- `.env.production.example` doit rester un template sans secrets reels.

@@ -27,12 +27,26 @@ export function getResetTokenTtlMinutes(): number {
   return Math.floor(parsed);
 }
 
+function requiresDirectUrl(databaseUrl: string): boolean {
+  try {
+    const url = new URL(databaseUrl);
+    return url.hostname.includes('-pooler.') || url.searchParams.get('pgbouncer') === 'true';
+  } catch {
+    return databaseUrl.includes('-pooler.') || databaseUrl.includes('pgbouncer=true');
+  }
+}
+
 export function validateRuntimeEnv(): void {
+  const databaseUrl = requireEnv('DATABASE_URL');
+
   for (const envVar of REQUIRED_ENV_VARS) {
     requireEnv(envVar);
+  }
+
+  if (requiresDirectUrl(databaseUrl)) {
+    requireEnv('DIRECT_URL');
   }
 
   // Validate optional numeric envs when present.
   getResetTokenTtlMinutes();
 }
-

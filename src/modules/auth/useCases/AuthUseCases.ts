@@ -46,6 +46,7 @@ export interface AuthResponse {
     email: string;
     name: string;
     role: Role;
+    avatarUrl?: string | null;
     patientId?: number;
     medecinId?: number;
     secretaireId?: number;
@@ -178,6 +179,7 @@ export class RegisterUseCase {
         email: user.email,
         name: user.name,
         role: user.role,
+        avatarUrl: user.avatarUrl,
       },
       ...tokens,
     };
@@ -239,6 +241,7 @@ export class LoginUseCase {
         email: user.email,
         name: user.name,
         role: user.role,
+        avatarUrl: user.avatarUrl,
         patientId,
         medecinId,
         secretaireId,
@@ -267,8 +270,8 @@ export class ForgotPasswordUseCase {
     }
 
     const debugModeEnabled =
-      process.env.NODE_ENV !== 'production' &&
-      process.env.LOG_RESET_TOKEN === 'true';
+      process.env.LOG_RESET_TOKEN === 'true' ||
+      process.env.NODE_ENV !== 'production';
     const genericResponseMessage = 'Si cet email existe, un lien de réinitialisation sera envoyé';
 
     const user = await this.authRepository.findUserByEmail(normalizedEmail);
@@ -299,8 +302,8 @@ export class ForgotPasswordUseCase {
     });
 
     const shouldLogResetLink =
-      process.env.LOG_RESET_TOKEN === 'true' ||
-      (process.env.NODE_ENV === 'development' && !sendResult.sent);
+      debugModeEnabled ||
+      (!sendResult.sent && process.env.NODE_ENV === 'development');
 
     if (shouldLogResetLink) {
       console.info(`[Auth] Password reset link for ${user.email}: ${resetLink}`);
@@ -388,6 +391,7 @@ export class GetCurrentUserUseCase {
     email: string;
     name: string;
     role: Role;
+    avatarUrl?: string | null;
     patientId?: number;
     medecinId?: number;
     secretaireId?: number;
@@ -403,6 +407,7 @@ export class GetCurrentUserUseCase {
       email: user.email,
       name: user.name,
       role: user.role,
+      avatarUrl: user.avatarUrl,
       patientId: user.patient?.id,
       medecinId: user.medecin?.id,
       secretaireId: user.secretaire?.id,

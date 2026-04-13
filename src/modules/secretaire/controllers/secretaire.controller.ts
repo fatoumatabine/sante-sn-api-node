@@ -74,6 +74,37 @@ async function getSecretaireScope(req: AuthRequest) {
   });
 }
 
+async function enrichWithValidationAvailability<
+  T extends { id: number; statut: string; medecinId: number; date: Date; heure: string }
+>(items: T[]) {
+  return Promise.all(
+    items.map(async (item) => {
+      if (item.statut !== 'en_attente') {
+        return {
+          ...item,
+          canValidate: null,
+          validationReason: null,
+          disponibiliteValidation: null,
+        };
+      }
+
+      const disponibiliteValidation = await rendezVousService.getDisponibilitePourCreneau({
+        medecinId: item.medecinId,
+        date: item.date,
+        heure: item.heure,
+        excludeRendezVousId: item.id,
+      });
+
+      return {
+        ...item,
+        canValidate: disponibiliteValidation.available,
+        validationReason: disponibiliteValidation.reason,
+        disponibiliteValidation,
+      };
+    })
+  );
+}
+
 export const secretaireController = {
   async getDisponibiliteDemande(req: AuthRequest, res: Response, next: NextFunction) {
     try {
@@ -123,7 +154,11 @@ export const secretaireController = {
       const appointments = await prisma.rendezVous.findMany({
         where: secretaire.medecinId ? { medecinId: secretaire.medecinId } : emptyMedecinScope,
         include: {
-          patient: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
           medecin: {
             include: {
               user: true
@@ -136,9 +171,11 @@ export const secretaireController = {
         }
       });
 
+      const appointmentsWithAvailability = await enrichWithValidationAvailability(appointments);
+
       res.json({
         success: true,
-        data: appointments
+        data: appointmentsWithAvailability
       });
     } catch (error) {
       next(error);
@@ -160,7 +197,11 @@ export const secretaireController = {
           medecinId: secretaire.medecinId || emptyMedecinScope.medecinId,
         },
         include: {
-          patient: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
           medecin: {
             include: {
               user: true
@@ -172,9 +213,11 @@ export const secretaireController = {
         }
       });
 
+      const demandesWithAvailability = await enrichWithValidationAvailability(demandes);
+
       res.json({
         success: true,
-        data: demandes
+        data: demandesWithAvailability
       });
     } catch (error) {
       next(error);

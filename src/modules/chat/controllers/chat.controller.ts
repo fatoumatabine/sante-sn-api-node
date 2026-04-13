@@ -42,12 +42,12 @@ export class ChatController {
 
       const otherUserId = Number(req.params.otherUserId);
       const thread = await this.chatService.openDirectThread(userId, otherUserId);
-      const messages = await this.chatService.getMessages(thread.threadId, userId, 50);
+      const messagesPage = await this.chatService.getMessages(thread.threadId, userId, { limit: 20 });
       await this.chatService.markThreadAsRead(thread.threadId, userId);
 
       return res
         .status(200)
-        .json(ApiResponse.success({ thread, messages }, 'Conversation ouverte'));
+        .json(ApiResponse.success({ thread, messages: messagesPage.messages, pageInfo: messagesPage.pageInfo }, 'Conversation ouverte'));
     } catch (error) {
       return next(error);
     }
@@ -60,13 +60,17 @@ export class ChatController {
 
       const threadId = Number(req.params.threadId);
       const limit = Number(req.query.limit || 50);
+      const beforeMessageId = req.query.beforeMessageId ? Number(req.query.beforeMessageId) : undefined;
 
-      const messages = await this.chatService.getMessages(threadId, userId, limit);
+      const messagesPage = await this.chatService.getMessages(threadId, userId, {
+        limit,
+        beforeMessageId,
+      });
       const readCount = await this.chatService.markThreadAsRead(threadId, userId);
 
       return res
         .status(200)
-        .json(ApiResponse.success({ messages, readCount }, 'Messages récupérés'));
+        .json(ApiResponse.success({ messages: messagesPage.messages, pageInfo: messagesPage.pageInfo, readCount }, 'Messages récupérés'));
     } catch (error) {
       return next(error);
     }

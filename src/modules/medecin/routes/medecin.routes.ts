@@ -32,6 +32,22 @@ router.get('/', ...httpKernel.query(MedecinListQuerySchema), (req, res, next) =>
 
 /**
  * @swagger
+ * /api/v1/medecins/public/catalog:
+ *   get:
+ *     summary: Catalogue public des médecins et services
+ *     description: Retourne des données publiques agrégées pour les pages marketing
+ *     tags:
+ *       - Médecins
+ *     responses:
+ *       200:
+ *         description: Catalogue public
+ */
+router.get('/public/catalog', ...httpKernel.public(), (req, res, next) =>
+  medecinController.publicCatalog(req, res, next)
+);
+
+/**
+ * @swagger
  * /api/v1/medecins/specialites:
  *   get:
  *     summary: Liste les spécialités

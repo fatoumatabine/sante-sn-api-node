@@ -42,7 +42,31 @@ const toNonEmptyString = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const normalizePaydunyaMessage = (message?: string): string | undefined => {
+  const current = toNonEmptyString(message);
+  if (!current) return undefined;
+
+  const lower = current.toLowerCase();
+  const missingActivation =
+    lower.includes('logon to your paydunya account') ||
+    (lower.includes('activation') && lower.includes('email confirmation'));
+
+  if (!missingActivation) {
+    return current;
+  }
+
+  return [
+    "Le compte PayDunya utilisé par l'application n'est pas encore opérationnel.",
+    "Connectez-vous à PayDunya, confirmez l'adresse e-mail du compte et terminez son activation, puis réessayez.",
+    'Vérifiez aussi que les clés utilisées correspondent bien au mode test/live configuré.',
+  ].join(' ');
+};
+
 export class PaydunyaClient {
+  normalizeProviderMessage(message?: string): string | undefined {
+    return normalizePaydunyaMessage(message);
+  }
+
   private baseUrl(): string {
     return (toNonEmptyString(process.env.PAYDUNYA_BASE_URL) || PAYDUNYA_DEFAULT_BASE_URL).replace(/\/+$/, '');
   }
@@ -157,7 +181,7 @@ export class PaydunyaClient {
 
     if (!response.ok) {
       throw new AppError(
-        data?.description || data?.response_text || 'Création de session PayDunya impossible',
+        this.normalizeProviderMessage(data?.description || data?.response_text) || 'Création de session PayDunya impossible',
         response.status
       );
     }
@@ -185,7 +209,8 @@ export class PaydunyaClient {
 
     if (!response.ok) {
       throw new AppError(
-        data?.response_text || data?.response_message || 'Vérification du paiement PayDunya impossible',
+        this.normalizeProviderMessage(data?.response_text || data?.response_message) ||
+          'Vérification du paiement PayDunya impossible',
         response.status
       );
     }

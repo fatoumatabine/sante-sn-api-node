@@ -1,5 +1,33 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 
+function normalizeDatasourceUrl(connectionString: string | undefined): string | undefined {
+  if (!connectionString) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(connectionString);
+    const isNeon = url.hostname.endsWith('.neon.tech');
+    const isNeonPooler = isNeon && url.hostname.includes('-pooler.');
+
+    if (isNeonPooler) {
+      // Prisma works better with Neon pooled endpoints when pgbouncer mode is explicit.
+      if (!url.searchParams.has('pgbouncer')) {
+        url.searchParams.set('pgbouncer', 'true');
+      }
+
+      // Fail fast when the pooled endpoint is unavailable instead of hanging startup.
+      if (!url.searchParams.has('connect_timeout')) {
+        url.searchParams.set('connect_timeout', '15');
+      }
+    }
+
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
+}
+
 const prismaClientSingleton = () => {
   const shouldLogQueries = process.env.PRISMA_LOG_QUERIES === 'true';
   const logConfig: Prisma.LogLevel[] =
@@ -9,8 +37,11 @@ const prismaClientSingleton = () => {
         : ['error', 'warn']
       : ['error'];
 
+  const datasourceUrl = normalizeDatasourceUrl(process.env.DATABASE_URL);
+
   return new PrismaClient({
     log: logConfig,
+    datasources: datasourceUrl ? { db: { url: datasourceUrl } } : undefined,
   });
 };
 

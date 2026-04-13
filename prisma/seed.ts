@@ -73,6 +73,26 @@ async function main() {
     },
   });
 
+  const medecin4User = await prisma.user.create({
+    data: {
+      email: 'dr.oumar.faye@santesn.demo',
+      password: hashedPassword,
+      name: 'Dr Oumar Faye',
+      role: Role.medecin,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const medecin5User = await prisma.user.create({
+    data: {
+      email: 'dr.khady.ba@santesn.demo',
+      password: hashedPassword,
+      name: 'Dr Khady Ba',
+      role: Role.medecin,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
   // Secrétaires
   const secretaire1User = await prisma.user.create({
     data: {
@@ -89,6 +109,26 @@ async function main() {
       email: 'mariam@gmail.com',
       password: hashedPassword,
       name: 'Mariam Secretaire',
+      role: Role.secretaire,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const secretaire3User = await prisma.user.create({
+    data: {
+      email: 'aminata.cisse@santesn.demo',
+      password: hashedPassword,
+      name: 'Aminata Cisse',
+      role: Role.secretaire,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const secretaire4User = await prisma.user.create({
+    data: {
+      email: 'astou.sow@santesn.demo',
+      password: hashedPassword,
+      name: 'Astou Sow',
       role: Role.secretaire,
       emailVerifiedAt: new Date(),
     },
@@ -145,6 +185,56 @@ async function main() {
     },
   });
 
+  const patient6User = await prisma.user.create({
+    data: {
+      email: 'aissatou.ndour@santesn.demo',
+      password: hashedPassword,
+      name: 'Aissatou Ndour',
+      role: Role.patient,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const patient7User = await prisma.user.create({
+    data: {
+      email: 'cheikh.niane@santesn.demo',
+      password: hashedPassword,
+      name: 'Cheikh Niane',
+      role: Role.patient,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const patient8User = await prisma.user.create({
+    data: {
+      email: 'adama.gueye@santesn.demo',
+      password: hashedPassword,
+      name: 'Adama Gueye',
+      role: Role.patient,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const patient9User = await prisma.user.create({
+    data: {
+      email: 'sokhna.fall@santesn.demo',
+      password: hashedPassword,
+      name: 'Sokhna Fall',
+      role: Role.patient,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  const patient10User = await prisma.user.create({
+    data: {
+      email: 'pape.sarr@santesn.demo',
+      password: hashedPassword,
+      name: 'Pape Sarr',
+      role: Role.patient,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
   console.log('✅ All users created');
 
   // ==================== CREATION DES MEDECINS ====================
@@ -186,6 +276,30 @@ async function main() {
     },
   });
 
+  const medecin4 = await prisma.medecin.create({
+    data: {
+      userId: medecin4User.id,
+      nom: 'Faye',
+      prenom: 'Oumar',
+      specialite: 'Pediatrie',
+      telephone: '221771234570',
+      adresse: 'Saint-Louis, Senegal',
+      tarif_consultation: 18000,
+    },
+  });
+
+  const medecin5 = await prisma.medecin.create({
+    data: {
+      userId: medecin5User.id,
+      nom: 'Ba',
+      prenom: 'Khady',
+      specialite: 'Gynecologie',
+      telephone: '221771234571',
+      adresse: 'Kaolack, Senegal',
+      tarif_consultation: 22000,
+    },
+  });
+
   console.log('✅ Doctors created');
 
   // ==================== CREATION DES SECRETARIES ====================
@@ -208,6 +322,26 @@ async function main() {
       nom: 'Touré',
       prenom: 'Mariam',
       telephone: '221771111112',
+    },
+  });
+
+  const secretaire3 = await prisma.secretaire.create({
+    data: {
+      userId: secretaire3User.id,
+      medecinId: medecin4.id,
+      nom: 'Cisse',
+      prenom: 'Aminata',
+      telephone: '221771111113',
+    },
+  });
+
+  const secretaire4 = await prisma.secretaire.create({
+    data: {
+      userId: secretaire4User.id,
+      medecinId: medecin5.id,
+      nom: 'Sow',
+      prenom: 'Astou',
+      telephone: '221771111114',
     },
   });
 
@@ -296,6 +430,86 @@ async function main() {
     },
   });
 
+  const patient6 = await prisma.patient.create({
+    data: {
+      userId: patient6User.id,
+      nom: 'Ndour',
+      prenom: 'Aissatou',
+      telephone: '221771222227',
+      date_naissance: new Date('1992-11-04'),
+      adresse: 'Mbour, Senegal',
+      groupe_sanguin: 'A-',
+      diabete: false,
+      hypertension: false,
+      hepatite: false,
+      autres_pathologies: 'Grossesse suivie',
+    },
+  });
+
+  const patient7 = await prisma.patient.create({
+    data: {
+      userId: patient7User.id,
+      nom: 'Niane',
+      prenom: 'Cheikh',
+      telephone: '221771222228',
+      date_naissance: new Date('2001-02-17'),
+      adresse: 'Saint-Louis, Senegal',
+      groupe_sanguin: 'B-',
+      diabete: false,
+      hypertension: false,
+      hepatite: false,
+      autres_pathologies: null,
+    },
+  });
+
+  const patient8 = await prisma.patient.create({
+    data: {
+      userId: patient8User.id,
+      nom: 'Gueye',
+      prenom: 'Adama',
+      telephone: '221771222229',
+      date_naissance: new Date('1974-09-30'),
+      adresse: 'Kaolack, Senegal',
+      groupe_sanguin: 'O+',
+      diabete: false,
+      hypertension: true,
+      hepatite: false,
+      autres_pathologies: 'Insuffisance rénale légère',
+    },
+  });
+
+  const patient9 = await prisma.patient.create({
+    data: {
+      userId: patient9User.id,
+      nom: 'Fall',
+      prenom: 'Sokhna',
+      telephone: '221771222230',
+      date_naissance: new Date('1988-01-12'),
+      adresse: 'Ziguinchor, Senegal',
+      groupe_sanguin: 'AB-',
+      diabete: true,
+      hypertension: false,
+      hepatite: false,
+      autres_pathologies: 'Suivi endocrinologique',
+    },
+  });
+
+  const patient10 = await prisma.patient.create({
+    data: {
+      userId: patient10User.id,
+      nom: 'Sarr',
+      prenom: 'Pape',
+      telephone: '221771222231',
+      date_naissance: new Date('1997-06-21'),
+      adresse: 'Touba, Senegal',
+      groupe_sanguin: 'O+',
+      diabete: false,
+      hypertension: false,
+      hepatite: false,
+      autres_pathologies: 'Allergie saisonnière',
+    },
+  });
+
   console.log('✅ Patients created');
 
   // ==================== CREATION DES MEDICAMENTS ====================
@@ -349,7 +563,7 @@ async function main() {
   const jours = [1, 2, 3, 4, 5];
   const heures = ['09:00', '09:30', '10:00', '10:30', '11:00', '14:00', '14:30', '15:00', '15:30', '16:00'];
 
-  for (const medecin of [medecin1, medecin2, medecin3]) {
+  for (const medecin of [medecin1, medecin2, medecin3, medecin4, medecin5]) {
     for (const jour of jours) {
       for (const heure of heures) {
         await prisma.creneauDisponible.create({
@@ -707,13 +921,22 @@ async function main() {
   console.log('   Médecin: dr.maley@gmail.com / password123');
   console.log('   Médecin: dr.diop@gmail.com / password123');
   console.log('   Médecin: dr.sall@gmail.com / password123');
+  console.log('   Médecin: dr.oumar.faye@santesn.demo / password123');
+  console.log('   Médecin: dr.khady.ba@santesn.demo / password123');
   console.log('   Secrétaire: fatou@gmail.com / password123');
   console.log('   Secrétaire: mariam@gmail.com / password123');
+  console.log('   Secrétaire: aminata.cisse@santesn.demo / password123');
+  console.log('   Secrétaire: astou.sow@santesn.demo / password123');
   console.log('   Patient: patient1@gmail.com / password123');
   console.log('   Patient: patient2@gmail.com / password123');
   console.log('   Patient: patient3@gmail.com / password123');
   console.log('   Patient: patient4@gmail.com / password123');
   console.log('   Patient: patient5@gmail.com / password123');
+  console.log('   Patient: aissatou.ndour@santesn.demo / password123');
+  console.log('   Patient: cheikh.niane@santesn.demo / password123');
+  console.log('   Patient: adama.gueye@santesn.demo / password123');
+  console.log('   Patient: sokhna.fall@santesn.demo / password123');
+  console.log('   Patient: pape.sarr@santesn.demo / password123');
 }
 
 main()

@@ -122,6 +122,14 @@ export interface ChatMessageDto {
   };
 }
 
+export interface ChatMessagesPageDto {
+  messages: ChatMessageDto[];
+  pageInfo: {
+    hasMore: boolean;
+    nextBeforeMessageId: number | null;
+  };
+}
+
 export interface ChatThreadDto {
   threadId: number;
   otherUser: {
@@ -292,18 +300,39 @@ export class ChatService {
     return this.mapThread(thread, currentUserId, 0);
   }
 
-  async getMessages(threadId: number, currentUserId: number, limit: number): Promise<ChatMessageDto[]> {
+  async getMessages(
+    threadId: number,
+    currentUserId: number,
+    options: {
+      limit: number;
+      beforeMessageId?: number;
+    }
+  ): Promise<ChatMessagesPageDto> {
     const db = this.getChatDb();
     await this.assertThreadAccess(threadId, currentUserId);
 
+    const { limit, beforeMessageId } = options;
     const messages: MessageWithSender[] = await db.chatMessage.findMany({
-      where: { threadId },
+      where: {
+        threadId,
+        ...(beforeMessageId ? { id: { lt: beforeMessageId } } : {}),
+      },
       include: threadMessageInclude,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      orderBy: { id: 'desc' },
+      take: limit + 1,
     });
 
-    return messages.reverse().map((message: MessageWithSender) => this.mapMessage(message));
+    const hasMore = messages.length > limit;
+    const currentPage = hasMore ? messages.slice(0, limit) : messages;
+    const nextBeforeMessageId = hasMore ? currentPage[currentPage.length - 1]?.id ?? null : null;
+
+    return {
+      messages: currentPage.reverse().map((message: MessageWithSender) => this.mapMessage(message)),
+      pageInfo: {
+        hasMore,
+        nextBeforeMessageId,
+      },
+    };
   }
 
   async sendMessage(threadId: number, currentUserId: number, rawContent: string): Promise<ChatMessageDto> {

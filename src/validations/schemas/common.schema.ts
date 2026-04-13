@@ -14,6 +14,25 @@ export const GmailEmailSchema = z
   .regex(GmailEmailRegex, GmailEmailMessage)
   .transform((value) => value.toLowerCase());
 
+const AvatarDataUrlRegex = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i;
+
+export const AvatarUrlSchema = z
+  .string()
+  .trim()
+  .max(2_000_000, 'Image trop volumineuse')
+  .refine((value) => {
+    if (AvatarDataUrlRegex.test(value)) {
+      return true;
+    }
+
+    try {
+      const url = new URL(value);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'Photo invalide. Utilisez une URL HTTP(S) ou importez une image PNG, JPG, WEBP ou GIF.');
+
 export const IdParamSchema = z.object({
   id: PositiveIntSchema,
 });

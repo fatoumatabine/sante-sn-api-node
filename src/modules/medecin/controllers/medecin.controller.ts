@@ -52,6 +52,15 @@ export class MedecinController {
     }
   }
 
+  async publicCatalog(req: Request, res: Response, next: NextFunction) {
+    try {
+      const catalog = await medecinService.getPublicCatalog();
+      return res.status(200).json(ApiResponse.success(catalog));
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getProfile(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user!.id;

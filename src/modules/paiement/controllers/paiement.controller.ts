@@ -15,6 +15,7 @@ export class PaiementController {
     this.create = this.create.bind(this);
     this.initiate = this.initiate.bind(this);
     this.pay = this.pay.bind(this);
+    this.simulate = this.simulate.bind(this);
     this.update = this.update.bind(this);
     this.confirm = this.confirm.bind(this);
     this.fail = this.fail.bind(this);
@@ -25,7 +26,13 @@ export class PaiementController {
 
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      const paiements = await this.paiementService.findAll();
+      const authReq = req as AuthRequest;
+      const paiements = await this.paiementService.findAll({
+        role: authReq.user?.role || '',
+        patientId: authReq.user?.patientId,
+        medecinId: authReq.user?.medecinId,
+        secretaireId: authReq.user?.secretaireId,
+      });
       return res.status(200).json(ApiResponse.success(paiements, 'Paiements récupérés avec succès'));
     } catch (error) {
       next(error);
@@ -35,18 +42,16 @@ export class PaiementController {
   async getById(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const id = parseInt(req.params.id);
-      const paiement = await this.paiementService.findById(id);
-      if (
-        req.user?.role === 'patient' &&
-        req.user.patientId !== paiement.patientId
-      ) {
-        return res.status(403).json(ApiResponse.error('Accès interdit', null, 403));
-      }
-      
+      const paiement = await this.paiementService.findById(id, {
+        role: req.user?.role || '',
+        patientId: req.user?.patientId,
+        medecinId: req.user?.medecinId,
+        secretaireId: req.user?.secretaireId,
+      });
       if (!paiement) {
         return res.status(404).json(ApiResponse.error('Paiement non trouvé', null, 404));
       }
-      
+
       return res.status(200).json(ApiResponse.success(paiement, 'Paiement récupéré avec succès'));
     } catch (error) {
       next(error);
@@ -56,10 +61,12 @@ export class PaiementController {
   async getByPatientId(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const patientId = parseInt(req.params.patientId);
-      if (req.user?.role === 'patient' && req.user.patientId !== patientId) {
-        return res.status(403).json(ApiResponse.error('Accès interdit', null, 403));
-      }
-      const paiements = await this.paiementService.findByPatientId(patientId);
+      const paiements = await this.paiementService.findByPatientId(patientId, {
+        role: req.user?.role || '',
+        patientId: req.user?.patientId,
+        medecinId: req.user?.medecinId,
+        secretaireId: req.user?.secretaireId,
+      });
       return res.status(200).json(ApiResponse.success(paiements, 'Paiements du patient récupérés avec succès'));
     } catch (error) {
       next(error);
@@ -69,14 +76,21 @@ export class PaiementController {
   async getByRendezVousId(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const rendezVousId = parseInt(req.params.rendezVousId);
-      const paiement = await this.paiementService.findByRendezVousId(rendezVousId);
-      if (
-        req.user?.role === 'patient' &&
-        paiement &&
-        req.user.patientId !== paiement.patientId
-      ) {
-        return res.status(403).json(ApiResponse.error('Accès interdit', null, 403));
+      const paiement = await this.paiementService.findByRendezVousId(rendezVousId, {
+        role: req.user?.role || '',
+        patientId: req.user?.patientId,
+        medecinId: req.user?.medecinId,
+        secretaireId: req.user?.secretaireId,
+      });
+
+      if (!paiement) {
+        const ownerPatientId = await this.paiementService.findRendezVousOwnerPatientId(rendezVousId);
+        if (!ownerPatientId) {
+          return res.status(404).json(ApiResponse.error('Rendez-vous non trouvé', null, 404));
+        }
+        return res.status(404).json(ApiResponse.error('Paiement non trouvé', null, 404));
       }
+
       return res.status(200).json(ApiResponse.success(paiement, 'Paiement récupéré avec succès'));
     } catch (error) {
       next(error);
@@ -131,8 +145,14 @@ export class PaiementController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
+      const authReq = req as AuthRequest;
       const id = parseInt(req.params.id);
-      const paiement = await this.paiementService.update(id, req.body);
+      const paiement = await this.paiementService.update(id, req.body, {
+        role: authReq.user?.role || '',
+        patientId: authReq.user?.patientId,
+        medecinId: authReq.user?.medecinId,
+        secretaireId: authReq.user?.secretaireId,
+      });
       return res.status(200).json(ApiResponse.success(paiement, 'Paiement mis à jour avec succès'));
     } catch (error) {
       next(error);
@@ -141,8 +161,14 @@ export class PaiementController {
 
   async confirm(req: Request, res: Response, next: NextFunction) {
     try {
+      const authReq = req as AuthRequest;
       const id = parseInt(req.params.id);
-      const paiement = await this.paiementService.confirm(id);
+      const paiement = await this.paiementService.confirm(id, {
+        role: authReq.user?.role || '',
+        patientId: authReq.user?.patientId,
+        medecinId: authReq.user?.medecinId,
+        secretaireId: authReq.user?.secretaireId,
+      });
       return res.status(200).json(ApiResponse.success(paiement, 'Paiement confirmé avec succès'));
     } catch (error) {
       next(error);
@@ -151,8 +177,14 @@ export class PaiementController {
 
   async fail(req: Request, res: Response, next: NextFunction) {
     try {
+      const authReq = req as AuthRequest;
       const id = parseInt(req.params.id);
-      const paiement = await this.paiementService.fail(id);
+      const paiement = await this.paiementService.fail(id, {
+        role: authReq.user?.role || '',
+        patientId: authReq.user?.patientId,
+        medecinId: authReq.user?.medecinId,
+        secretaireId: authReq.user?.secretaireId,
+      });
       return res.status(200).json(ApiResponse.success(paiement, 'Paiement marqué comme échoué'));
     } catch (error) {
       next(error);
@@ -176,11 +208,26 @@ export class PaiementController {
         role: req.user?.role || '',
         patientId: req.user?.patientId,
         medecinId: req.user?.medecinId,
+        secretaireId: req.user?.secretaireId,
       });
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
       return res.status(200).send(result.buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async simulate(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json(ApiResponse.error('Non autorisé', null, 401));
+      }
+      const { rendezVousId } = req.body || {};
+      const paiement = await this.paiementService.simulate(userId, Number(rendezVousId));
+      return res.status(200).json(ApiResponse.success(paiement, 'Paiement simulé avec succès'));
     } catch (error) {
       next(error);
     }

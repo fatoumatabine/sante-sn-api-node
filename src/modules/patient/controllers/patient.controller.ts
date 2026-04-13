@@ -46,6 +46,20 @@ export class PatientController {
     }
   }
 
+  async getDossierMedical(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json(ApiResponse.error('Non autorisé'));
+      }
+
+      const dossier = await patientService.getPatientMedicalRecord(userId);
+      return res.json(ApiResponse.success(dossier));
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDashboardSummary(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
@@ -81,11 +95,12 @@ export class PatientController {
         return res.status(401).json(ApiResponse.error('Non autorisé'));
       }
 
-      const { prenom, nom, telephone, email } = req.body as {
+      const { prenom, nom, telephone, email, avatarUrl } = req.body as {
         prenom?: string;
         nom?: string;
         telephone?: string;
         email?: string;
+        avatarUrl?: string | null;
       };
 
       const updated = await patientService.updatePatientProfile(userId, {
@@ -93,6 +108,7 @@ export class PatientController {
         nom,
         telephone,
         email,
+        avatarUrl,
       });
       return res.json(ApiResponse.success(updated, 'Profil mis à jour'));
     } catch (error) {
@@ -100,37 +116,25 @@ export class PatientController {
     }
   }
 
-  async createTriageEvaluation(req: AuthRequest, res: Response, next: NextFunction) {
+  async runTriageEvaluation(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) {
         return res.status(401).json(ApiResponse.error('Non autorisé'));
       }
 
-      const { responses, niveau, urgent, specialiteConseillee, recommandations } = req.body as {
+      const { responses, contexteLibre } = req.body as {
         responses?: Record<string, string | string[]>;
-        niveau?: 'faible' | 'modere' | 'eleve';
-        urgent?: boolean;
-        specialiteConseillee?: string;
-        recommandations?: string[];
+        contexteLibre?: string;
       };
 
       if (!responses || typeof responses !== 'object') {
         return res.status(400).json(ApiResponse.error('Réponses invalides'));
       }
-      if (!niveau || !['faible', 'modere', 'eleve'].includes(niveau)) {
-        return res.status(400).json(ApiResponse.error('Niveau invalide'));
-      }
-      if (!Array.isArray(recommandations) || recommandations.length === 0) {
-        return res.status(400).json(ApiResponse.error('Recommandations invalides'));
-      }
 
-      const evaluation = await patientService.createTriageEvaluation(userId, {
+      const evaluation = await patientService.runTriageEvaluation(userId, {
         responses,
-        niveau,
-        urgent: Boolean(urgent),
-        specialiteConseillee,
-        recommandations,
+        contexteLibre,
       });
 
       return res.status(201).json(ApiResponse.created(evaluation, 'Évaluation IA enregistrée'));

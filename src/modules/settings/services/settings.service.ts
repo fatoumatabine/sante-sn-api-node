@@ -34,11 +34,52 @@ type SystemSettings = {
   debugMode: boolean;
 };
 
+type MarketingAboutSettings = {
+  heroEyebrow: string;
+  heroTitle: string;
+  heroDescription: string;
+  heroBadge: string;
+  missionTitle: string;
+  missionDescription: string;
+  missionPoint1: string;
+  missionPoint2: string;
+  missionPoint3: string;
+  missionPoint4: string;
+  humanityDescription: string;
+  trustDescription: string;
+  simplicityDescription: string;
+};
+
+type MarketingContactSettings = {
+  heroEyebrow: string;
+  heroTitle: string;
+  heroDescription: string;
+  heroBadge: string;
+  phone: string;
+  email: string;
+  location: string;
+  hours: string;
+  formIntro: string;
+  responseTime: string;
+};
+
+export type MarketingSettingsPayload = {
+  about: MarketingAboutSettings;
+  contact: MarketingContactSettings;
+};
+
 export type AdminSettingsPayload = {
   generalSettings: GeneralSettings;
   notificationSettings: NotificationSettings;
   securitySettings: SecuritySettings;
   systemSettings: SystemSettings;
+  marketingSettings: MarketingSettingsPayload;
+  updatedAt?: string;
+};
+
+export type PublicSiteSettingsPayload = {
+  generalSettings: Pick<GeneralSettings, 'appName' | 'appDescription' | 'language'>;
+  marketingSettings: MarketingSettingsPayload;
   updatedAt?: string;
 };
 
@@ -85,6 +126,42 @@ export const defaultAdminSettings: AdminSettingsPayload = {
     backupFrequency: 'daily',
     logRetention: '30',
     debugMode: false,
+  },
+  marketingSettings: {
+    about: {
+      heroEyebrow: 'À propos de Santé SN',
+      heroTitle: 'Une plateforme pensée pour moderniser le soin sans perdre sa dimension humaine.',
+      heroDescription:
+        'Notre ambition est simple : construire un environnement de santé numérique crédible, élégant et utile pour les patients comme pour les professionnels.',
+      heroBadge: 'Santé numérique, mais toujours profondément humaine',
+      missionTitle: 'Concevoir une expérience de santé qui inspire immédiatement confiance.',
+      missionDescription:
+        'Nous voulons qu’un patient comprenne rapidement où aller, comment être aidé et ce qu’il se passera ensuite. Cette clarté change profondément la perception du service.',
+      missionPoint1: 'Rendre la consultation accessible depuis n’importe où',
+      missionPoint2: 'Réduire les zones de flou entre prise de rendez-vous et suivi',
+      missionPoint3: 'Mieux préparer les médecins grâce à un contexte structuré',
+      missionPoint4: 'Créer une interface moderne sans perdre la chaleur humaine',
+      humanityDescription:
+        'Nous cherchons à rendre la relation de soin plus proche, plus douce et plus claire à chaque étape.',
+      trustDescription:
+        'La plateforme doit inspirer le sérieux, protéger les données et clarifier les décisions médicales.',
+      simplicityDescription:
+        'Nous simplifions les parcours complexes pour que l’utilisateur sache toujours où cliquer et quoi faire.',
+    },
+    contact: {
+      heroEyebrow: 'Contact Santé SN',
+      heroTitle: 'Une page de contact complète, claire et immédiatement exploitable.',
+      heroDescription:
+        'Que vous vouliez réserver, poser une question ou parler d’un partenariat, nous avons structuré cette page pour rendre le premier échange simple et rassurant.',
+      heroBadge: 'Contact pensé pour rassurer avant même le premier échange',
+      phone: '+221 33 123 45 67',
+      email: 'contact@santesn.sn',
+      location: 'Dakar, Sénégal',
+      hours: 'Lun - Ven / 8h00 - 18h00',
+      formIntro:
+        'Ce formulaire ouvre votre application email avec un message déjà préparé. C’est simple, rapide et suffisant pour une première prise de contact.',
+      responseTime: '< 24h',
+    },
   },
 };
 
@@ -158,6 +235,16 @@ const normalizeAdminSettings = (input: unknown): AdminSettingsPayload => {
       ...defaultAdminSettings.systemSettings,
       ...asObject(value.systemSettings),
     },
+    marketingSettings: {
+      about: {
+        ...defaultAdminSettings.marketingSettings.about,
+        ...asObject(asObject(value.marketingSettings).about),
+      },
+      contact: {
+        ...defaultAdminSettings.marketingSettings.contact,
+        ...asObject(asObject(value.marketingSettings).contact),
+      },
+    },
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined,
   };
 };
@@ -188,6 +275,19 @@ const normalizeUserSettings = (input: unknown): UserSettingsPayload => {
 };
 
 export class SettingsService {
+  async getPublicSiteSettings(): Promise<PublicSiteSettingsPayload> {
+    const settings = await this.getAdminSettings();
+    return {
+      generalSettings: {
+        appName: settings.generalSettings.appName,
+        appDescription: settings.generalSettings.appDescription,
+        language: settings.generalSettings.language,
+      },
+      marketingSettings: settings.marketingSettings,
+      updatedAt: settings.updatedAt,
+    };
+  }
+
   async getAdminSettings() {
     const appSetting = getAppSettingDelegate();
     if (!appSetting) {

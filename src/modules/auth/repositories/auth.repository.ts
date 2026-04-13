@@ -1,12 +1,24 @@
 import prisma from '../../../config/db';
 import { Role, User, Patient, Medecin, Secretaire } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { IAuthRepository } from './IAuthRepository';
+import { AuthUser, AuthUserWithRelations, IAuthRepository } from './IAuthRepository';
+import { readUserAvatarUrl } from '../../../shared/utils/user-avatar';
 
 export class AuthRepository implements IAuthRepository {
-  async findUserByEmail(email: string): Promise<(User & { patient?: Patient | null; medecin?: Medecin | null; secretaire?: Secretaire | null }) | null> {
+  private async attachAvatar<T extends { id: number }>(user: T | null): Promise<(T & { avatarUrl: string | null }) | null> {
+    if (!user) {
+      return null;
+    }
+
+    return {
+      ...user,
+      avatarUrl: await readUserAvatarUrl(prisma, user.id),
+    };
+  }
+
+  async findUserByEmail(email: string): Promise<AuthUserWithRelations | null> {
     const normalizedEmail = email.trim();
-    return prisma.user.findFirst({
+    const user = await prisma.user.findFirst({
       where: {
         email: {
           equals: normalizedEmail,
@@ -20,10 +32,12 @@ export class AuthRepository implements IAuthRepository {
         secretaire: true,
       },
     });
+
+    return this.attachAvatar(user);
   }
 
-  async findUserByIdWithRelations(id: number): Promise<(User & { patient?: Patient | null; medecin?: Medecin | null; secretaire?: Secretaire | null }) | null> {
-    return prisma.user.findFirst({
+  async findUserByIdWithRelations(id: number): Promise<AuthUserWithRelations | null> {
+    const user = await prisma.user.findFirst({
       where: { id, isArchived: false },
       include: {
         patient: true,
@@ -31,12 +45,16 @@ export class AuthRepository implements IAuthRepository {
         secretaire: true,
       },
     });
+
+    return this.attachAvatar(user);
   }
 
-  async findUserById(id: number): Promise<User | null> {
-    return prisma.user.findFirst({
+  async findUserById(id: number): Promise<AuthUser | null> {
+    const user = await prisma.user.findFirst({
       where: { id, isArchived: false },
     });
+
+    return this.attachAvatar(user);
   }
 
   async createUser(data: {
@@ -44,15 +62,20 @@ export class AuthRepository implements IAuthRepository {
     password: string;
     name: string;
     role: Role;
-  }): Promise<User> {
+  }): Promise<AuthUser> {
     const hashedPassword = await bcrypt.hash(data.password, 12);
-    
-    return prisma.user.create({
+
+    const user = await prisma.user.create({
       data: {
         ...data,
         password: hashedPassword,
       },
     });
+
+    return {
+      ...user,
+      avatarUrl: null,
+    };
   }
 
   async createPatient(userId: number, data: {
@@ -121,7 +144,7 @@ export class AuthRepository implements IAuthRepository {
     });
   }
 
-  async findByResetToken(tokenHash: string, now: Date): Promise<User | null> {
+  async findByResetToken(tokenHash: string, now: Date): Promise<AuthUser | null> {
     const user = await prisma.user.findFirst({
       where: {
         rememberToken: {
@@ -141,7 +164,10 @@ export class AuthRepository implements IAuthRepository {
       return null;
     }
 
-    return user;
+    return {
+      ...user,
+      avatarUrl: await readUserAvatarUrl(prisma, user.id),
+    };
   }
 
   async verifyPassword(password: string, hashedPassword: string): Promise<boolean> {

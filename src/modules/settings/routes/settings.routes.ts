@@ -5,6 +5,10 @@ import { UpdateMySettingsSchema, UpdateAdminSettingsSchema } from '../../../vali
 
 const router = Router();
 
+router.get('/public-site', ...httpKernel.public(), (req, res, next) =>
+  settingsController.getPublicSiteSettings(req, res, next)
+);
+
 router.get('/app', ...httpKernel.auth(), (req, res, next) => settingsController.getAppSettings(req, res, next));
 
 router.get('/me', ...httpKernel.auth(), (req, res, next) => settingsController.getMySettings(req, res, next));

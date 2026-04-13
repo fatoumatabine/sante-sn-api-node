@@ -29,7 +29,8 @@ export class CreneauController {
   async getByMedecinId(req: Request, res: Response, next: NextFunction) {
     try {
       const medecinId = parseInt(req.params.medecinId);
-      const creneaux = await this.creneauService.findByMedecinId(medecinId);
+      const includeInactive = String(req.query.includeInactive || '').toLowerCase() === 'true';
+      const creneaux = await this.creneauService.findByMedecinId(medecinId, { includeInactive });
       return res.status(200).json(ApiResponse.success(creneaux, 'Créneaux du médecin récupérés avec succès'));
     } catch (error) {
       next(error);

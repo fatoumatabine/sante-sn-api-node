@@ -31,6 +31,7 @@ export const CreateRendezVousSchema = z
       errorMap: () => ({ message: 'Type de rendez-vous invalide' }),
     }),
     urgent_ia: z.boolean().optional(),
+    triage_evaluation_id: transformToNumber.pipe(z.number().int().positive()).optional(),
     specialite: z.string().optional(),
     prestation_type: z.string().optional(),
   })

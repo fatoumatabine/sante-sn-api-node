@@ -4,6 +4,7 @@ import { httpKernel } from '../../../kernel';
 import {
   UpdatePatientProfileSchema,
   CreateTriageEvaluationSchema,
+  RunTriageEvaluationSchema,
   TriageHistoryQuerySchema,
 } from '../../../validations';
 
@@ -16,9 +17,11 @@ router.use(...httpKernel.allow('patient'));
 router.get('/profile', (req, res, next) => patientController.getProfile(req, res, next));
 router.put('/profile', ...httpKernel.body(UpdatePatientProfileSchema), (req, res, next) => patientController.updateProfile(req, res, next));
 router.get('/triage-evaluations', ...httpKernel.query(TriageHistoryQuerySchema), (req, res, next) => patientController.getTriageHistory(req, res, next));
-router.post('/triage-evaluations', ...httpKernel.body(CreateTriageEvaluationSchema), (req, res, next) => patientController.createTriageEvaluation(req, res, next));
+router.post('/triage-evaluations', ...httpKernel.body(CreateTriageEvaluationSchema), (req, res, next) => patientController.runTriageEvaluation(req, res, next));
+router.post('/triage-evaluations/run', ...httpKernel.body(RunTriageEvaluationSchema), (req, res, next) => patientController.runTriageEvaluation(req, res, next));
 router.get('/mes-rendez-vous', (req, res, next) => patientController.getMesRendezVous(req, res, next));
 router.get('/mes-consultations', (req, res, next) => patientController.getMesConsultations(req, res, next));
+router.get('/dossier-medical', (req, res, next) => patientController.getDossierMedical(req, res, next));
 router.get('/mes-paiements', (req, res, next) => patientController.getMesPaiements(req, res, next));
 router.get('/dashboard/summary', (req, res, next) => patientController.getDashboardSummary(req, res, next));
 

@@ -7,7 +7,7 @@ export class RendezVousController {
   
   async create(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { medecin_id, date, type, motif, specialite, prestation_type, heure, urgent_ia } = req.body;
+      const { medecin_id, date, type, motif, specialite, prestation_type, heure, triage_evaluation_id } = req.body;
       const userId = req.user?.id;
       
       if (!userId) {
@@ -31,6 +31,26 @@ export class RendezVousController {
       // Convertir la date en objet Date
       const dateObj = new Date(date);
       
+      let urgentIa = false;
+
+      if (triage_evaluation_id) {
+        const triageEvaluation = await prisma.patientTriageEvaluation.findFirst({
+          where: {
+            id: Number(triage_evaluation_id),
+            patientId: patient.id,
+          },
+          select: {
+            urgent: true,
+          },
+        });
+
+        if (!triageEvaluation) {
+          return res.status(400).json(ApiResponse.error('Évaluation IA introuvable pour ce patient'));
+        }
+
+        urgentIa = triageEvaluation.urgent;
+      }
+
       const rdv = await rendezVousService.create({
         patientId: patient.id,
         medecinId: Number(medecin_id),
@@ -39,7 +59,7 @@ export class RendezVousController {
         type,
         motif: motif || specialite,
         prestation_type,
-        urgent_ia: Boolean(urgent_ia),
+        urgent_ia: urgentIa,
       });
 
       return res.status(201).json(ApiResponse.created(rdv, 'Rendez-vous créé avec succès'));
@@ -75,6 +95,35 @@ export class RendezVousController {
     try {
       const { id } = req.params;
       const rdv = await rendezVousService.findById(Number(id));
+
+      const authReq = req as AuthRequest;
+      const role = authReq.user?.role;
+
+      if (role === 'patient' && authReq.user?.patientId !== rdv.patientId) {
+        return res.status(403).json(ApiResponse.error('Accès interdit', null, 403));
+      }
+
+      if (role === 'medecin' && authReq.user?.medecinId !== rdv.medecinId) {
+        return res.status(403).json(ApiResponse.error('Accès interdit', null, 403));
+      }
+
+      if (role === 'secretaire') {
+        const secretaireId = authReq.user?.secretaireId;
+
+        if (!secretaireId) {
+          return res.status(403).json(ApiResponse.error('Profil secrétaire requis', null, 403));
+        }
+
+        const { prisma } = await import('../../../config/db');
+        const secretaire = await prisma.secretaire.findFirst({
+          where: { id: secretaireId, isArchived: false },
+          select: { medecinId: true },
+        });
+
+        if (!secretaire?.medecinId || secretaire.medecinId !== rdv.medecinId) {
+          return res.status(403).json(ApiResponse.error('Accès interdit', null, 403));
+        }
+      }
 
       return res.status(200).json(ApiResponse.success(rdv));
     } catch (error) {

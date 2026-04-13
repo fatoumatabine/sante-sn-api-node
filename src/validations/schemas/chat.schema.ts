@@ -10,6 +10,7 @@ export const ChatDirectUserParamSchema = z.object({
 
 export const ChatMessagesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  beforeMessageId: z.coerce.number().int().positive().optional(),
 });
 
 export const ChatSendMessageSchema = z

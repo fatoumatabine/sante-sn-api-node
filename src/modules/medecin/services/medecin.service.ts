@@ -30,6 +30,10 @@ export class MedecinService {
     return medecinRepository.getSpecialites();
   }
 
+  async getPublicCatalog() {
+    return medecinRepository.getPublicCatalog();
+  }
+
   async create(data: {
     userId: number;
     nom: string;
