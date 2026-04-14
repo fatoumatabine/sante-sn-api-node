@@ -42,4 +42,4 @@ COPY --from=builder /app/scripts ./scripts
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "echo '==> Running prisma migrate status...' && node_modules/.bin/prisma migrate status > /tmp/migrate.log 2>&1; cat /tmp/migrate.log; echo '==> Running prisma migrate deploy...' && node_modules/.bin/prisma migrate deploy > /tmp/migrate2.log 2>&1; code=$?; cat /tmp/migrate2.log; if [ $code -ne 0 ]; then echo \"MIGRATION FAILED with exit code $code\"; exit $code; fi && echo '==> Migration OK' && if [ \"$RUN_DB_SEED_ON_START\" = \"true\" ]; then npm run db:seed:safe; fi && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && if [ \"$RUN_DB_SEED_ON_START\" = \"true\" ]; then npm run db:seed:safe; fi && node dist/server.js"]

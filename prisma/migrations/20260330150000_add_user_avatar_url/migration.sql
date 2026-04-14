@@ -1,2 +1,2 @@
 ALTER TABLE "User"
-ADD COLUMN IF NOT EXISTS "avatarUrl" TEXT;
+ADD COLUMN "avatarUrl" TEXT;
