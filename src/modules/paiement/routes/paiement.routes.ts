@@ -27,7 +27,7 @@ router.post('/webhooks/paydunya', ...httpKernel.public(), paiementController.pay
 router.get('/:id/facture/download', ...httpKernel.allow('admin', 'medecin', 'secretaire', 'patient'), ...httpKernel.params(IdParamSchema), paiementController.downloadFacture);
 router.get('/:id', ...httpKernel.allow('admin', 'medecin', 'secretaire', 'patient'), ...httpKernel.params(IdParamSchema), paiementController.getById);
 router.post('/initier', ...httpKernel.allow('patient'), ...httpKernel.body(InitiatePaiementSchema), paiementController.initiate);
-router.post('/simuler', ...httpKernel.allow('patient'), paiementController.simulate);
+router.post('/payer', ...httpKernel.allow('patient'), paiementController.simulate);
 router.post('/:id/payer', ...httpKernel.allow('patient'), ...httpKernel.params(IdParamSchema), ...httpKernel.body(PayPaiementSchema), paiementController.pay);
 router.post('/', ...httpKernel.allow('admin', 'secretaire', 'patient'), ...httpKernel.body(CreatePaiementSchema), paiementController.create);
 router.put('/:id', ...httpKernel.allow('admin', 'secretaire'), ...httpKernel.params(IdParamSchema), ...httpKernel.body(UpdatePaiementSchema), paiementController.update);
