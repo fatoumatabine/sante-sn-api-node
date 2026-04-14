@@ -42,4 +42,4 @@ COPY --from=builder /app/scripts ./scripts
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && if [ \"$RUN_DB_SEED_ON_START\" = \"true\" ]; then npm run db:seed:safe; fi && node dist/server.js"]
+CMD ["sh", "-c", "echo '==> Running prisma migrate deploy...' && npx prisma migrate deploy 2>&1 && echo '==> Migration OK' && if [ \"$RUN_DB_SEED_ON_START\" = \"true\" ]; then npm run db:seed:safe; fi && node dist/server.js"]
