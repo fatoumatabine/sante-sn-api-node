@@ -42,9 +42,4 @@ COPY --from=builder /app/scripts ./scripts
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "status=$(node_modules/.bin/prisma migrate status 2>&1);
- echo \"$status\"; if echo \"$status\" | grep -q 'up to date'; 
- then echo '==> Schema up to date, skipping migrate deploy'; 
- else echo '==> Applying pending migrations...' && node_modules/.bin/prisma migrate deploy; 
- fi && if [ \"$RUN_DB_SEED_ON_START\" = \"true\" ]; 
- then npm run db:seed:safe; fi && node dist/server.js"]
+CMD ["sh", "-c", "status=$(node_modules/.bin/prisma migrate status 2>&1); echo \"$status\"; if echo \"$status\" | grep -q 'up to date'; then echo '==> Schema up to date, skipping migrate deploy'; else echo '==> Applying pending migrations...' && node_modules/.bin/prisma migrate deploy; fi && if [ \"$RUN_DB_SEED_ON_START\" = \"true\" ]; then npm run db:seed:safe; fi && node dist/server.js"]
