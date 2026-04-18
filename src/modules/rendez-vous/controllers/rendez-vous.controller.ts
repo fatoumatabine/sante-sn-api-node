@@ -27,29 +27,49 @@ export class RendezVousController {
       if (!patient) {
         return res.status(403).json(ApiResponse.error('Profil patient requis'));
       }
-      
+
+      // Pré-évaluation IA obligatoire avant tout RDV
+      if (!triage_evaluation_id) {
+        return res.status(400).json(ApiResponse.error('Une pré-évaluation IA est requise avant de prendre un rendez-vous'));
+      }
+
       // Convertir la date en objet Date
       const dateObj = new Date(date);
-      
-      let urgentIa = false;
 
-      if (triage_evaluation_id) {
-        const triageEvaluation = await prisma.patientTriageEvaluation.findFirst({
-          where: {
-            id: Number(triage_evaluation_id),
-            patientId: patient.id,
-          },
-          select: {
-            urgent: true,
-          },
-        });
+      const triageEvaluation = await prisma.patientTriageEvaluation.findFirst({
+        where: {
+          id: Number(triage_evaluation_id),
+          patientId: patient.id,
+        },
+        select: {
+          urgent: true,
+          specialiteConseillee: true,
+        },
+      });
 
-        if (!triageEvaluation) {
-          return res.status(400).json(ApiResponse.error('Évaluation IA introuvable pour ce patient'));
-        }
-
-        urgentIa = triageEvaluation.urgent;
+      if (!triageEvaluation) {
+        return res.status(400).json(ApiResponse.error('Évaluation IA introuvable pour ce patient'));
       }
+
+      // Si l'IA recommande une spécialité, le médecin choisi doit correspondre
+      if (triageEvaluation.specialiteConseillee && type !== 'prestation' && medecin_id) {
+        const medecin = await prisma.medecin.findFirst({
+          where: { id: Number(medecin_id) },
+          select: { specialite: true },
+        });
+        if (!medecin) {
+          return res.status(400).json(ApiResponse.error('Médecin introuvable'));
+        }
+        if (medecin.specialite !== triageEvaluation.specialiteConseillee) {
+          return res.status(400).json(
+            ApiResponse.error(
+              `L'IA recommande un médecin en ${triageEvaluation.specialiteConseillee}. Veuillez choisir un médecin de cette spécialité.`
+            )
+          );
+        }
+      }
+
+      const urgentIa = triageEvaluation.urgent;
 
       const rdv = await rendezVousService.create({
         patientId: patient.id,

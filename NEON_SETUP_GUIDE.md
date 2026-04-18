@@ -121,7 +121,7 @@ Dans l'application SantSN, le client Prisma ajoute automatiquement `pgbouncer=tr
 ### 5.3 Reset de la base de données
 
 Pour réinitialiser complètement la base (attention, données supprimées !) :
-
+ 
 ```bash
 # Via Neon dashboard ou CLI
 neon project database reset
